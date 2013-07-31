@@ -47,7 +47,7 @@
             newBox.textContent = connections[i];
 
             // Assign color
-            newBox.classList.add('previewColor' + connections[i]);
+            newBox.classList.add('previewColor' + (connections[i] % 12));
             subBoxesList.push(newBox);
 
             // Add the box to subBoxesByConnectionId

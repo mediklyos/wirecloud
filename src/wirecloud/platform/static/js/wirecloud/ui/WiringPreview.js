@@ -219,7 +219,11 @@
             }
 
             for (i = 0; i < newEndpoint.connectionIds.length; i += 1) {
-                 emphasize.call(this, this.arrowsToDraw[newEndpoint.connectionIds[i]][typeSearched]);
+                // Emphasize each label
+                emphasize(this.arrowsToDraw[newEndpoint.connectionIds[i]][typeSearched]);
+
+                // Highlight subSmartBoxes
+                subBoxOverHandler.call(this, newEndpoint.connectionIds[i]);
             }
         }.bind(this, newEndpoint), false);
 
@@ -233,7 +237,11 @@
             }
 
             for (i = 0; i < newEndpoint.connectionIds.length; i += 1) {
-                 deemphasize.call(this, this.arrowsToDraw[newEndpoint.connectionIds[i]][typeSearched]);
+                // Deemphasize each label
+                 deemphasize(this.arrowsToDraw[newEndpoint.connectionIds[i]][typeSearched]);
+
+                // Unhighlight subSmartBoxes
+                subBoxOutHandler.call(this, newEndpoint.connectionIds[i]);
             }
         }.bind(this, newEndpoint), false);
 
@@ -313,13 +321,6 @@
             // Fill labelsByConnectionId
             this.labelsByConnectionId[connectionIds[i]].push(endpoint);
         }
-    };
-
-    /**
-     * SubBox click handler
-     */
-    var subBoxClickHandler = function subBoxClickHandler(connectionId) {
-
     };
 
     /**
