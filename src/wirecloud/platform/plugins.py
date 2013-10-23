@@ -20,7 +20,11 @@
 import inspect
 
 from django.utils.importlib import import_module
-from django.conf.urls.defaults import patterns
+try:
+    from django.conf.urls import patterns
+except ImportError:  # pragma: no cover
+    # for Django version less than 1.4
+    from django.conf.urls.defaults import patterns
 from django.core.exceptions import ImproperlyConfigured
 from django.core.urlresolvers import get_ns_resolver, get_resolver, get_script_prefix, NoReverseMatch
 from django.utils.encoding import force_unicode

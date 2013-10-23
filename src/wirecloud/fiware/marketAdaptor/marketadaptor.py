@@ -18,17 +18,18 @@
 # along with Wirecloud.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import urllib2
-from urllib2 import HTTPError
-from urllib import urlencode
+import requests
+from requests.auth import HTTPBasicAuth
+from urllib2 import URLError, HTTPError
 from urlparse import urljoin, urlparse
 from lxml import etree
 
+from django.core.cache import cache
 from django.utils.http import urlquote, urlquote_plus
 
-from wirecloud.fiware.marketAdaptor.usdlParser import USDLParser
+from wirecloud.commons.utils.http import parse_mime_type
+from wirecloud.fiware.marketAdaptor.usdlParser import USDLParseException, USDLParser
 from wirecloud.fiware.storeclient import StoreClient
-from wirecloud.proxy.views import MethodRequest
 
 RESOURCE_XPATH = '/collection/resource'
 URL_XPATH = 'url'
@@ -37,12 +38,56 @@ SEARCH_RESULT_XPATH = '/searchresults/searchresult'
 SEARCH_SERVICE_XPATH = 'service'
 SEARCH_STORE_XPATH = 'store'
 
-opener = urllib2.build_opener()
+
+def parse_usdl_from_url(url):
+
+    cache_key = '_usdl_info/' + url
+    usdl_info = cache.get(cache_key)
+    if usdl_info is not None:
+        if isinstance(usdl_info, Exception):
+            raise usdl_info
+        else:
+            return usdl_info
+
+    headers = {"Accept": "text/plain; application/rdf+xml; text/turtle; text/n3"}
+
+    try:
+
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            raise HTTPError(response.url, response.status_code, response.reason, None, None)
+
+        content_type = parse_mime_type(response.headers.get('content-type'))[0]
+        parser = USDLParser(response.content, content_type)
+        usdl_info = parser.parse()
+    except (requests.ConnectionError, URLError, USDLParseException), e:
+        cache.set(cache_key, e, 2 * 60 * 60)
+        raise
+
+    cache.set(cache_key, usdl_info)
+
+    return usdl_info
+
+
+def parse_resource_info(offering_resource):
+    resource_info = {
+        'content_type': offering_resource['content_type'],
+        'name': offering_resource['name'],
+        'description': offering_resource['description'],
+    }
+    if 'link' in offering_resource:
+        resource_info['url'] = offering_resource['link']
+
+    if offering_resource['content_type'] in ('application/x-widget+mashable-application-component', 'application/x-operator+mashable-application-component', 'application/x-mashup+mashable-application-component'):
+        if 'link' in offering_resource:
+            resource_info['id'] = offering_resource['link'].rsplit('__', 1)[1].rsplit('.', 1)[0].replace('_', '/')
+
+    return resource_info
+
 
 class MarketAdaptor(object):
 
     _marketplace_uri = None
-    _session_id = None
     _stores = {}
 
     def __init__(self, marketplace_uri, user='demo1234', passwd='demo1234'):
@@ -62,11 +107,12 @@ class MarketAdaptor(object):
             ser['store'] = store
             ser['marketName'] = name
 
-            if ser['versions'][0]['uriTemplate'] == '':
-                ser['versions'][0]['uriTemplate'] = url
+            if ser['uriTemplate'] == '':
+                ser['uriTemplate'] = url
 
             ser['usdl_url'] = url
             ser['rating'] = 5  # TODO
+            ser['resources'] = []
 
             try:
 
@@ -74,7 +120,13 @@ class MarketAdaptor(object):
                 offering_id = offering_parsed_url.path.rsplit('/', 1)[1].replace('__', '/')
 
                 store_client = self._stores[store]
-                offering_info = store_client.get_offering_info(offering_id, options[store + '/token'])
+                store_token_key = store + '/token'
+                if store_token_key in options:
+                    token = options[store_token_key]
+                else:
+                    token = options['idm_token']
+
+                offering_info = store_client.get_offering_info(offering_id, token)
                 offering_type = 'other'
                 if len(offering_info['resources']) == 1:
 
@@ -87,21 +139,14 @@ class MarketAdaptor(object):
                     elif offering_resource['content_type'] == 'application/x-mashup+mashable-application-component':
                         offering_type = 'mashup'
 
+                    ser['resources'] = [parse_resource_info(offering_resource)]
                 else:
 
                     info_offering_resources = []
                     for offering_resource in offering_info['resources']:
-                        resource_info = {
-                            'content_type': offering_resource['content_type'],
-                            'name': offering_resource['name'],
-                            'description': offering_resource['description'],
-                        }
-                        if 'link' in offering_resource:
-                            resource_info['url'] = offering_resource['link']
+                        resource_info = parse_resource_info(offering_resource)
 
-                        if offering_resource['content_type'] in ('application/x-widget+mashable-application-component', 'application/x-operator+mashable-application-component', 'application/x-mashup+mashable-application-component'):
-                            if 'link' in offering_resource:
-                                resource_info['id'] = offering_resource['link'].rsplit('__', 1)[1].rsplit('.', 1)[0].replace('_', '/')
+                        if resource_info['content_type'] in ('application/x-widget+mashable-application-component', 'application/x-operator+mashable-application-component', 'application/x-mashup+mashable-application-component'):
                             offering_type = 'pack'
 
                         info_offering_resources.append(resource_info)
@@ -109,6 +154,8 @@ class MarketAdaptor(object):
                     ser['resources'] = info_offering_resources
 
                 ser['type'] = offering_type
+                ser['uriImage'] = urljoin(store_client._url, offering_info['image_url'])
+                ser['publicationdate'] = offering_info['publication_date']
                 ser['state'] = offering_info['state']
                 ser['rating'] = offering_info['rating']
 
@@ -119,62 +166,19 @@ class MarketAdaptor(object):
 
         return offerings
 
-    def authenticate(self):
-
-        opener = urllib2.build_opener()
-
-        # submit field is required
-        credentials = urlencode({'j_username': self._user, 'j_password': self._passwd, 'submit': 'Submit'})
-        headers = {'content-type': 'application/x-www-form-urlencoded'}
-        request = MethodRequest("POST", urljoin(self._marketplace_uri, "/FiwareMarketplace/j_spring_security_check"), credentials, headers)
-
-        parsed_url = None
-        try:
-            response = opener.open(request)
-            parsed_url = urlparse(response.url)
-
-        except HTTPError, e:
-            # Marketplace can return an error code but authenticate
-            parsed_url = urlparse(e.url)
-
-        if parsed_url[4] != 'login_error' and parsed_url[3][:10] == 'jsessionid':
-            # parsed_url[3] params field, contains jsessionid
-            self._session_id = parsed_url[3][11:]
-        else:
-            raise Exception('Marketplace login error')
-
     def get_all_stores(self):
 
-        if self._session_id is None:
-            self.authenticate()
-
-        opener = urllib2.build_opener()
-        session_cookie = 'JSESSIONID=' + self._session_id + ';' + ' Path=/FiwareMarketplace'
-        headers = {'Cookie': session_cookie}
-
-        request = MethodRequest("GET", urljoin(self._marketplace_uri, "/FiwareMarketplace/v1/registration/stores/"), '', headers)
+        url = urljoin(self._marketplace_uri, "registration/stores/")
         try:
-            response = opener.open(request)
+            response = requests.get(url, auth=HTTPBasicAuth(self._user, self._passwd))
         except HTTPError, e:
-            if (e.code == 404):
+            if e.code == 404:
                 return []
 
-        # Marketplace redirects to a login page (sprint_security_login) if
-        # the session expires
-        parsed_url = urlparse(response.url)
-        path = parsed_url[2].split('/')
+        if response.status_code != 200:
+            raise HTTPError(response.url, response.status_code, response.reason, None, None)
 
-        if len(path) > 2 and path[2] == 'spring_security_login':
-            # Session has expired
-            self._session_id = None
-            return self.get_all_stores()
-
-        if response.code != 200:
-            raise HTTPError(response.url, response.code, response.msg, None, None)
-
-        body = response.read()
-
-        parsed_body = etree.fromstring(body)
+        parsed_body = etree.fromstring(response.content)
 
         result = []
 
@@ -192,34 +196,16 @@ class MarketAdaptor(object):
 
     def get_store_info(self, store):
 
-        if self._session_id is None:
-            self.authenticate()
-
-        opener = urllib2.build_opener()
-        session_cookie = 'JSESSIONID=' + self._session_id + ';' + ' Path=/FiwareMarketplace'
-        headers = {'Cookie': session_cookie}
-
-        request = MethodRequest("GET", urljoin(self._marketplace_uri, "/FiwareMarketplace/v1/registration/store/" + urlquote(store)), '', headers)
+        url = urljoin(self._marketplace_uri, "registration/store/" + urlquote(store))
         try:
-            response = opener.open(request)
+            response = requests.get(url, auth=HTTPBasicAuth(self._user, self._passwd))
         except HTTPError, e:
             raise HTTPError(e.url, e.code, e.msg, None, None)
 
-        if response.code != 200:
-            raise HTTPError(response.url, response.code, response.msg, None, None)
+        if response.status_code != 200:
+            raise HTTPError(response.url, response.status_code, response.reason, None, None)
 
-        # Marketplace redirects to a login page (sprint_security_login) if
-        # the session expires
-        parsed_url = urlparse(response.url)
-        path = parsed_url[2].split('/')
-
-        if len(path) > 2 and path[2] == 'spring_security_login':
-            # Session has expired
-            self._session_id = None
-            return self.get_store_info()
-
-        body = response.read()
-        parsed_body = etree.fromstring(body)
+        parsed_body = etree.fromstring(response.content)
 
         result = {}
         result['name'] = store
@@ -233,35 +219,16 @@ class MarketAdaptor(object):
 
     def get_all_services_from_store(self, store, **options):
 
-        if self._session_id is None:
-            self.authenticate()
-
-        opener = urllib2.build_opener()
-        session_cookie = 'JSESSIONID=' + self._session_id + ';' + ' Path=/FiwareMarketplace'
-        headers = {'Cookie': session_cookie}
-
-        request = MethodRequest("GET", urljoin(self._marketplace_uri, "/FiwareMarketplace/v1/offering/store/" + urlquote(store) + "/offerings"), '', headers)
-
+        url = urljoin(self._marketplace_uri, "offering/store/" + urlquote(store) + "/offerings")
         try:
-            response = opener.open(request)
+            response = requests.get(url, auth=HTTPBasicAuth(self._user, self._passwd))
         except HTTPError, e:
             raise HTTPError(e.url, e.code, e.msg, None, None)
 
-        # Marketplace redirects to a login page (sprint_security_login) if
-        # the session expires
-        parsed_url = urlparse(response.url)
-        path = parsed_url[2].split('/')
+        if response.status_code != 200:
+            raise HTTPError(response.url, response.status_code, response.reason, None, None)
 
-        if len(path) > 2 and path[2] == 'spring_security_login':
-            # Session has expired
-            self._session_id = None
-            return self.get_all_services_from_store(store, **options)
-
-        if response.code != 200:
-            raise HTTPError(response.url, response.code, response.msg, None, None)
-
-        body = response.read()
-        parsed_body = etree.fromstring(body)
+        parsed_body = etree.fromstring(response.content)
 
         result = {'resources': []}
 
@@ -270,22 +237,10 @@ class MarketAdaptor(object):
             url = res.xpath(URL_XPATH)[0].text
 
             try:
-                headers = {"Accept": "text/plain; application/rdf+xml; text/turtle; text/n3"}
-                request = MethodRequest("GET", url, '', headers)
-                response = opener.open(request)
-                usdl_document = response.read()
-                content_type = response.headers.get('content-type')
-
-                # Remove the charset
-                pos = content_type.find(';')
-                if pos > -1:
-                    content_type = content_type[:pos]
-
-                parser = USDLParser(usdl_document, content_type)
+                parsed_usdl = parse_usdl_from_url(url)
             except:
                 continue
 
-            parsed_usdl = parser.parse()
             result['resources'] += self._parse_offering(res.get('name'), url, parsed_usdl, store, options)
 
         return result
@@ -298,105 +253,25 @@ class MarketAdaptor(object):
 
     def start_purchase(self, store, offering_url, redirect_uri, **options):
         store_client = self.get_store(store)
-        return store_client.start_purchase(offering_url, redirect_uri, options[store + '/token'])
-
-    def get_service_info(self, store, service):
-        pass
-
-    def add_service(self, store, service_info):
-
-        if self._session_id is None:
-            self.authenticate()
-
-        params = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><resource name="' + service_info['name'] + '" ><url>' + service_info['url'] + '</url></resource>'
-        session_cookie = 'JSESSIONID=' + self._session_id + ';' + ' Path=/FiwareMarketplace'
-        headers = {
-            'Accept': 'application/xml, application/json, text/plain',
-            'Content-Type': 'application/xml',
-            'Cookie': session_cookie
-        }
-
-        opener = urllib2.build_opener()
-        request = MethodRequest("PUT", urljoin(self._marketplace_uri, "/FiwareMarketplace/v1/offering/store/" + urlquote(store) + "/offering"), params, headers)
-        try:
-            response = opener.open(request)
-        except HTTPError, e:
-            # Marketplace redirects to a login page (sprint_security_login) if
-            # the session expires. In addition, python don't follow
-            # redirections when issuing PUT requests, so we have to check for
-            # a 302 startus code
-            if e.code == 302:
-                self._session_id = None
-                self.add_service(store, service_info)
-                return
-            else:
-                raise HTTPError(e.url, e.code, e.msg, None, None)
-
-        if response.code != 201:
-            raise HTTPError(response.url, response.code, response.msg, None, None)
-
-    def update_service(self, store, service_info):
-        pass
-
-    def delete_service(self, store, service):
-
-        if self._session_id is None:
-            self.authenticate()
-
-        opener = urllib2.build_opener()
-        session_cookie = 'JSESSIONID=' + self._session_id + ';' + ' Path=/FiwareMarketplace'
-        headers = {'Cookie': session_cookie}
-
-        request = MethodRequest("DELETE", urljoin(self._marketplace_uri, "/FiwareMarketplace/v1/offering/store/" + urlquote(store) + "/offering/" + urlquote(service)), '', headers)
-
-        try:
-            response = opener.open(request)
-        except HTTPError, e:
-            # Marketplace redirects to a login page (sprint_security_login) if
-            # the session expires. In addition, python don't follow
-            # redirections when issuing DELETE requests, so we have to check for
-            # a 302 startus code
-            if e.code == 302:
-                self._session_id = None
-                self.delete_service(store, service)
-                return
-            else:
-                raise HTTPError(e.url, e.code, e.msg, None, None)
-
-        if response.code != 200:
-            raise HTTPError(response.url, response.code, response.msg, None, None)
+        store_token_key = store + '/token'
+        if store_token_key in options:
+            token = options[store_token_key]
+        else:
+            token = options['idm_token']
+        return store_client.start_purchase(offering_url, redirect_uri, token)
 
     def full_text_search(self, store, search_string, options):
 
-        if self._session_id is None:
-            self.authenticate()
-
-        opener = urllib2.build_opener()
-        session_cookie = 'JSESSIONID=' + self._session_id + ';' + ' Path=/FiwareMarketplace'
-        headers = {'Cookie': session_cookie}
-
-        request = MethodRequest("GET", urljoin(self._marketplace_uri, "/FiwareMarketplace/v1/search/offerings/fulltext/" + urlquote_plus(search_string)), '', headers)
-
+        url = urljoin(self._marketplace_uri, "search/offerings/fulltext/" + urlquote_plus(search_string))
         try:
-            response = opener.open(request)
+            response = requests.get(url, auth=HTTPBasicAuth(self._user, self._passwd))
         except HTTPError, e:
             raise HTTPError(e.url, e.code, e.msg, None, None)
 
-        # Marketplace redirects to a login page (sprint_security_login) if
-        # the session expires
-        parsed_url = urlparse(response.url)
-        path = parsed_url[2].split('/')
+        if response.status_code != 200:
+            raise HTTPError(response.url, response.status_code, response.reason, None, None)
 
-        if len(path) > 2 and path[2] == 'spring_security_login':
-            # Session has expired
-            self._session_id = None
-            return self.full_text_search(store, search_string)
-
-        if response.code != 200:
-            raise HTTPError(response.url, response.code, response.msg, None, None)
-
-        body = response.read()
-        parsed_body = etree.fromstring(body)
+        parsed_body = etree.fromstring(response.content)
 
         result = {'resources': []}
         for res in parsed_body.xpath(SEARCH_RESULT_XPATH):
@@ -408,19 +283,7 @@ class MarketAdaptor(object):
                 continue
 
             try:
-                headers = {"Accept": "text/plain; application/rdf+xml; text/turtle; text/n3"}
-                request = MethodRequest("GET", url, '', headers)
-                response = opener.open(request)
-                content_type = response.headers.get('content-type')
-
-                # Remove the charset
-                pos = content_type.find(';')
-                if pos > -1:
-                    content_type = content_type[:pos]
-
-                usdl_document = response.read()
-                parser = USDLParser(usdl_document, content_type)
-                parsed_usdl = parser.parse()
+                parsed_usdl = parse_usdl_from_url(url)
             except:
                 continue
 

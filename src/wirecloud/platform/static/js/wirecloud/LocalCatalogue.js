@@ -1,5 +1,5 @@
 /*
- *     (C) Copyright 2012 Universidad Politécnica de Madrid
+ *     Copyright (c) 2012 CoNWeT Lab., Universidad Politécnica de Madrid
  *
  *     This file is part of Wirecloud Platform.
  *
@@ -62,7 +62,7 @@
     var uninstallOrDeleteSuccessCallback = function uninstallOrDeleteSuccessCallback(transport) {
         var layoutManager, result, opManager, i, widgetId;
 
-        switch (this.resource.getType()) {
+        switch (this.resource.type) {
         case 'widget':
             layoutManager = LayoutManagerFactory.getInstance();
             result = JSON.parse(transport.responseText);
@@ -88,7 +88,7 @@
 
         try {
             delete this.catalogue.resources[this.resource.getURI()];
-            delete this.catalogue.resourcesByType[this.resource.getType()][this.resource.getURI()];
+            delete this.catalogue.resourcesByType[this.resource.type][this.resource.getURI()];
         } catch (e) {}
 
         if (typeof this.onSuccess === 'function') {
@@ -202,9 +202,9 @@
         var url, context;
 
         url = Wirecloud.URLs.LOCAL_RESOURCE_ENTRY.evaluate({
-            vendor: resource.getVendor(),
-            name: resource.getName(),
-            version: resource.getVersion().text
+            vendor: resource.vendor,
+            name: resource.name,
+            version: resource.version.text
         });
 
         context = {
@@ -228,9 +228,9 @@
         var url, context;
 
         url = this.RESOURCE_ENTRY.evaluate({
-            vendor: resource.getVendor(),
-            name: resource.getName(),
-            version: resource.getVersion().text
+            vendor: resource.vendor,
+            name: resource.name,
+            version: resource.version.text
         });
 
         context = {
@@ -321,7 +321,7 @@
     };
 
     LocalCatalogue.resourceExists = function resourceExists(resource) {
-        var id = [resource.getVendor(), resource.getName(), resource.getVersion().text].join('/');
+        var id = [resource.vendor, resource.name, resource.version.text].join('/');
         return this.resourceExistsId(id);
     };
 

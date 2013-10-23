@@ -18,19 +18,21 @@
 # along with Wirecloud.  If not, see <http://www.gnu.org/licenses/>.
 
 from cStringIO import StringIO
+import json
+import zipfile
 
 from django.contrib.auth.models import User
 from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404
-from django.utils import simplejson
 from django.utils.translation import ugettext as _
 from django.views.decorators.http import require_GET, require_POST
 
 from wirecloud.catalogue.models import CatalogueResource
-from wirecloud.commons.baseviews.resource import Resource
 from wirecloud.commons.utils import downloader
 from wirecloud.commons.utils.http import build_error_response, get_content_type
 from wirecloud.commons.utils.template import TemplateParser, TemplateParseException
+from wirecloud.commons.utils.template.writers.rdf import write_rdf_description
+from wirecloud.commons.utils.transaction import commit_on_http_success
 from wirecloud.commons.utils.wgt import WgtFile
 from wirecloud.platform.localcatalogue.utils import install_resource_to_user
 from wirecloud.platform.workspace.mashupTemplateParser import buildWorkspaceFromTemplate
@@ -50,10 +52,24 @@ def parse_username(tenant_id):
         return id_fields[2]
 
 
-@require_GET
+@require_POST
+@commit_on_http_success
 def add_tenant(request):
 
-    id_4CaaSt = request.GET['message']
+    try:
+        data = json.loads(request.raw_post_data)
+    except ValueError, e:
+        msg = _("malformed json data: %s") % unicode(e)
+        return build_error_response(request, 400, msg)
+
+    id_4CaaSt = data['4CaaStID']
+
+    if id_4CaaSt is None:
+        return build_error_response(request, 400, _('Missing 4CaaStID'))
+
+    if not isinstance(id_4CaaSt, basestring) or id_4CaaSt.strip() == '':
+        return build_error_response(request, 400, _('Invalid 4CaaStID'))
+
     username = parse_username(id_4CaaSt)
 
     status = 201
@@ -76,10 +92,24 @@ def add_tenant(request):
     return HttpResponse(status)
 
 
-@require_GET
+@require_POST
+@commit_on_http_success
 def remove_tenant(request):
 
-    id_4CaaSt = request.GET['message']
+    try:
+        data = json.loads(request.raw_post_data)
+    except ValueError, e:
+        msg = _("malformed json data: %s") % unicode(e)
+        return build_error_response(request, 400, msg)
+
+    id_4CaaSt = data.get('4CaaStID')
+
+    if id_4CaaSt is None:
+        return build_error_response(request, 400, _('Missing 4CaaStID'))
+
+    if not isinstance(id_4CaaSt, basestring) or id_4CaaSt.strip() == '':
+        return build_error_response(request, 400, _('Invalid 4CaaStID'))
+
     username = parse_username(id_4CaaSt)
 
     user = get_object_or_404(User, username=username)
@@ -95,110 +125,103 @@ def remove_tenant(request):
 
 def _parse_ac_request(request):
 
-    id_4CaaSt = request.GET.get('message', None)
     fileURL = None
     file_contents = None
     content_type = get_content_type(request)[0]
 
-    if content_type == 'multipart/form-data':
+    try:
+        data = json.loads(request.raw_post_data)
+    except Exception, e:
+        msg = _("malformed json data: %s") % unicode(e)
+        return build_error_response(request, 400, msg)
 
-        if not 'file' in request.FILES:
-            return build_error_response(request, 400, _('Missing widget file'))
+    if 'url' not in data:
+        return build_error_response(request, 400, _('Missing widget URL'))
 
-        downloaded_file = request.FILES['file']
-        file_contents = WgtFile(downloaded_file)
+    fileURL = data.get('url')
+    id_4CaaSt = data.get('4CaaStID')
 
-    elif content_type == 'application/octet-stream':
+    if id_4CaaSt is None:
+        return build_error_response(request, 400, _('Missing 4CaaStID'))
 
-        downloaded_file = StringIO(request.raw_post_content)
-        file_contents = WgtFile(downloaded_file)
+    if not isinstance(id_4CaaSt, basestring) or id_4CaaSt.strip() == '':
+        return build_error_response(request, 400, _('Invalid 4CaaStID'))
 
-    else:
+    try:
+        downloaded_file = downloader.download_http_content(fileURL)
+    except:
+        return build_error_response(request, 409, _('Mashable application component could not be downloaded'))
 
-        if content_type == 'application/json':
+    downloaded_file = StringIO(downloaded_file)
+    file_contents = WgtFile(downloaded_file)
 
-            try:
-                data = simplejson.loads(request.raw_post_data)
-            except Exception, e:
-                msg = _("malformed json data: %s") % unicode(e)
-                return build_error_response(request, 400, msg)
+    # Create a custom version of the resource
+    template = TemplateParser(file_contents.get_template())
+    template_info = template.get_resource_info()
+    template_info['name'] += '@' + id_4CaaSt
 
-            if 'url' not in data:
-                return build_error_response(request, 400, _('Missing widget URL'))
+    for pref_name, pref_value in data.get('preferences', {}).iteritems():
+        for widget_pref_index, widget_pref in enumerate(template_info['preferences']):
+            if widget_pref['name'] == pref_name:
+                template_info['preferences'][widget_pref_index]['readonly'] = True
+                template_info['preferences'][widget_pref_index]['value'] = pref_value
+                break
 
-            fileURL = data.get('url')
-            if 'id_4caast' in data:
-                id_4CaaSt = data.get('id_4caast')
+    # Write a new Wgt file
+    new_file = StringIO()
+    zin = zipfile.ZipFile(downloaded_file, 'r')
+    zout = zipfile.ZipFile(new_file, 'w')
+    zout.writestr('config.xml', write_rdf_description(template_info))
+    for item in zin.infolist():
+        if item.filename == 'config.xml':
+            continue
+        zout.writestr(item, zin.read(item.filename))
+    zin.close()
+    zout.close()
 
-        elif content_type == 'application/x-www-form-urlencoded':
-
-            if 'url' not in request.POST:
-                return build_error_response(request, 400, _('Missing widget URL'))
-
-            fileURL = request.POST['url']
-
-        try:
-            downloaded_file = downloader.download_http_content(fileURL)
-        except:
-            return build_error_response(request, 409, _('Widget content could not be downloaded'))
-
-        downloaded_file = StringIO(downloaded_file)
-        file_contents = WgtFile(downloaded_file)
+    file_contents = WgtFile(new_file)
 
     return id_4CaaSt, file_contents, fileURL
 
 @require_POST
+@commit_on_http_success
 def deploy_tenant_ac(request):
 
-    id_4CaaSt, wgt_file, fileURL = _parse_ac_request(request)
+    result = _parse_ac_request(request)
+    if isinstance(result, HttpResponse):
+        return result
+
+    id_4CaaSt, wgt_file, fileURL = result
 
     # Process 4CaaSt Id
     username = parse_username(id_4CaaSt)
 
     user = get_object_or_404(User, username=username)
-    try:
-        if user.tenantprofile_4CaaSt.id_4CaaSt != id_4CaaSt:
-            raise Http404
-    except TenantProfile.DoesNotExist:
-        raise Http404
 
     # Install uploaded MAC resource
     try:
 
-        install_resource_to_user(user, file_contents=wgt_file, templateURL=fileURL, packaged=True)
+        resource = install_resource_to_user(user, file_contents=wgt_file, templateURL=fileURL, packaged=True)
 
     except TemplateParseException, e:
 
         return build_error_response(request, 400, unicode(e.msg))
 
-    return HttpResponse(status=204)
-
-@require_POST
-def start_tenant_ac(request):
-
-    id_4CaaSt, wgt_file, fileURL = _parse_ac_request(request)
-
-    # Process 4CaaSt Id
-    username = parse_username(id_4CaaSt)
-
-    user = get_object_or_404(User, username=username)
-    try:
-        if user.tenantprofile_4CaaSt.id_4CaaSt != id_4CaaSt:
-            raise Http404
-    except TenantProfile.DoesNotExist:
-        raise Http404
-
     # Create a workspace if the resource is a mashup
-    template = TemplateParser(wgt_file.get_template())
-    if template.get_resource_type() == 'mashup' and not Workspace.objects.filter(creator=user, name=template.get_resource_info()['display_name']).exists():
-        buildWorkspaceFromTemplate(template, user, True)
+    if resource.resource_type() == 'mashup' and not Workspace.objects.filter(creator=user, name=resource.display_name).exists():
+        buildWorkspaceFromTemplate(resource.get_template(), user, True)
 
     return HttpResponse(status=204)
 
 @require_POST
-def stop_tenant_ac(request):
+@commit_on_http_success
+def undeploy_tenant_ac(request):
 
-    id_4CaaSt, wgt_file, fileURL = _parse_ac_request(request)
+    result = _parse_ac_request(request)
+    if isinstance(result, HttpResponse):
+        return result
+
+    id_4CaaSt, wgt_file, fileURL = result
 
     # Process 4CaaSt Id
     username = parse_username(id_4CaaSt)
@@ -210,29 +233,12 @@ def stop_tenant_ac(request):
     except TenantProfile.DoesNotExist:
         raise Http404
 
-    # Remove assigned workspace if the resource is a mashup
+    # If the resource is a mashup, remove the assigned workspace
     template = TemplateParser(wgt_file.get_template())
     if template.get_resource_type() == 'mashup':
         Workspace.objects.filter(creator=user, name=template.get_resource_info()['display_name']).delete()
 
-    return HttpResponse(status=204)
-
-
-@require_POST
-def undeploy_tenant_ac(request):
-
-    id_4CaaSt, wgt_file, fileURL = _parse_ac_request(request)
-
-    # Process 4CaaSt Id
-    username = parse_username(id_4CaaSt)
-
-    user = get_object_or_404(User, username=username)
-    try:
-        if user.tenantprofile_4CaaSt.id_4CaaSt != id_4CaaSt:
-            raise Http404
-    except TenantProfile.DoesNotExist:
-        raise Http404
-
+    # Uninstall de resource
     template = TemplateParser(wgt_file.get_template())
     resource = CatalogueResource.objects.get(vendor=template.get_resource_vendor(), short_name=template.get_resource_name(), version=template.get_resource_version())
     resource.users.remove(user)
@@ -240,45 +246,61 @@ def undeploy_tenant_ac(request):
     return HttpResponse(status=204)
 
 
-class TenantCollection(Resource):
+@require_GET
+@commit_on_http_success
+def add_saas_tenant(request, creator, workspace):
 
-    def read(self, request, creator, workspace):
+    # Sync workspace list before searching it
+    creator_user = get_object_or_404(User, username=creator)
+    get_workspace_list(creator_user)
 
-        # Sync workspace list before searching it
-        creator_user = get_object_or_404(User, username=creator)
-        get_workspace_list(creator_user)
+    workspace = get_object_or_404(Workspace, creator=creator_user, name=workspace)
 
-        workspace = get_object_or_404(Workspace, creator=creator_user, name=workspace)
+    status = 201
 
-        status = 201
+    id_4CaaSt = request.GET.get('message')
 
-        id_4CaaSt = request.GET['message']
-        username = parse_username(id_4CaaSt)
-        try:
-            user = User.objects.create_user(username, 'test@example.com', username)
-        except:
-            user = User.objects.get(username=username)
+    if id_4CaaSt is None:
+        return build_error_response(request, 400, _('Missing 4CaaStID'))
 
-        try:
-            user_workspace = UserWorkspace.objects.get(user=user, workspace=workspace)
-        except:
-            packageLinker = PackageLinker()
-            user_workspace = packageLinker.link_workspace(workspace, user, creator_user)
+    if not isinstance(id_4CaaSt, basestring) or id_4CaaSt.strip() == '':
+        return build_error_response(request, 400, _('Invalid 4CaaStID'))
 
-        setActiveWorkspace(user, user_workspace.workspace)
+    username = parse_username(id_4CaaSt)
+    try:
+        user = User.objects.create_user(username, 'test@example.com', username)
+    except:
+        user = User.objects.get(username=username)
 
-        try:
-            user_workspace.profile4caast.id_4CaaSt = id_4CaaSt
-            user_workspace.profile4caast.save()
-        except:
-            Profile4CaaSt.objects.create(user_workspace=user_workspace, id_4CaaSt=id_4CaaSt)
+    try:
+        user_workspace = UserWorkspace.objects.get(user=user, workspace=workspace)
+    except:
+        packageLinker = PackageLinker()
+        user_workspace = packageLinker.link_workspace(workspace, user, creator_user)
 
-        return HttpResponse(status=status)
+    setActiveWorkspace(user, user_workspace.workspace)
+
+    try:
+        user_workspace.profile4caast.id_4CaaSt = id_4CaaSt
+        user_workspace.profile4caast.save()
+    except:
+        Profile4CaaSt.objects.create(user_workspace=user_workspace, id_4CaaSt=id_4CaaSt)
+
+    return HttpResponse(status=status)
+
 
 @require_GET
+@commit_on_http_success
 def remove_saas_tenant(request, creator, workspace):
 
-    id_4CaaSt = request.GET['message']
+    id_4CaaSt = request.GET.get('message')
+
+    if id_4CaaSt is None:
+        return build_error_response(request, 400, _('Missing 4CaaStID'))
+
+    if not isinstance(id_4CaaSt, basestring) or id_4CaaSt.strip() == '':
+        return build_error_response(request, 400, _('Invalid 4CaaStID'))
+
     username = parse_username(id_4CaaSt)
 
     db_filter = {

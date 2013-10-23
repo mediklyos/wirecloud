@@ -93,6 +93,7 @@
         });
         this.user_button.insertInto(wrapper);
 
+
         user_menu = this.user_button.getPopupMenu();
         user_menu.append(new StyledElements.MenuItem(gettext('Settings'), OpManagerFactory.getInstance().showPlatformPreferences));
 
@@ -101,6 +102,8 @@
                 window.open(Wirecloud.URLs.DJANGO_ADMIN, '_blank');
             }));
         }
+        user_menu.append(new Wirecloud.ui.TutorialSubMenu());
+
         user_menu.append(new StyledElements.MenuItem(gettext('Sign out'), OpManagerFactory.getInstance().logout));
     };
 

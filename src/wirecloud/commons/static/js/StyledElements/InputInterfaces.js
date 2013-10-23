@@ -558,6 +558,7 @@ function ButtonGroupInputInterface(fieldId, fieldDesc) {
 
     this.inputElement = new StyledElements.ButtonsGroup(fieldId);
     this.wrapperElement = document.createElement('div');
+    this.wrapperElement.className = 'button_group';
 
     switch (fieldDesc.kind) {
     case 'radio':
@@ -574,10 +575,18 @@ function ButtonGroupInputInterface(fieldId, fieldDesc) {
         buttonDesc = fieldDesc.buttons[i];
 
         label = document.createElement('label');
-        button = new ButtonClass(this.inputElement, buttonDesc.value);
+        label.className = fieldDesc.kind;
+        button = new ButtonClass({group: this.inputElement, value: buttonDesc.value, secondInput: buttonDesc.secondInput});
         button.insertInto(label);
         label.appendChild(document.createTextNode(buttonDesc.label));
+        if (buttonDesc.secondInput) {
+            buttonDesc.secondInput.insertInto(label);
+        }
         this.wrapperElement.appendChild(label);
+    }
+
+    if ('initialValue' in fieldDesc) {
+        this.inputElement.setValue(fieldDesc.initialValue);
     }
 }
 ButtonGroupInputInterface.prototype = new InputInterface();
@@ -1047,6 +1056,17 @@ ParametrizedTextInputInterface.prototype.getAvailableParameters = function getAv
 };
 
 ParametrizedTextInputInterface.prototype.escapeValue = function escapeValue(value) {
+    switch (typeof value) {
+    case "number":
+    case "boolean":
+        value = value.toString();
+        break;
+    default:
+        if (value == null) {
+            value = "";
+        }
+    }
+
     return value.replace(ParametrizedTextInputInterface.prototype._ESCAPE_RE,
         ParametrizedTextInputInterface.prototype._ESCAPE_FUNC);
 };

@@ -18,7 +18,11 @@
 # along with Wirecloud.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from django.conf.urls.defaults import include, patterns, url
+try:
+    from django.conf.urls import patterns, include, url
+except ImportError:  # pragma: no cover
+    # for Django version less than 1.4
+    from django.conf.urls.defaults import patterns, include, url
 
 
 urlpatterns = patterns('wirecloud.oauth2provider.views',

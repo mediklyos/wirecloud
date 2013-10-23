@@ -22,7 +22,6 @@ import json
 
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from django.utils import simplejson
 
 from wirecloud.commons.baseviews import Resource
 from wirecloud.commons.utils.http import get_absolute_reverse_url
@@ -64,6 +63,11 @@ def get_market_user_data(user, market_user, market_name):
         except:
             user_data[user_data_entry.name] = None
 
+    try:
+        user_data['idm_token'] = user.social_auth.filter(provider='fiware').select_related('tokens').get().tokens['access_token']
+    except:
+        pass
+
     return user_data
 
 
@@ -79,22 +83,7 @@ class ServiceCollection(Resource):
         except:
             return HttpResponse(status=502)
 
-        return HttpResponse(simplejson.dumps(result), mimetype='application/json; charset=UTF-8')
-
-    def create(self, request, market_user, market_name, store):
-
-        service_info = {}
-        service_info['name'] = request.POST['name']
-        service_info['url'] = request.POST['url']
-
-        adaptor = get_market_adaptor(market_user, market_name)
-
-        try:
-            adaptor.add_service(store, service_info)
-        except:
-            return HttpResponse(status=502)
-
-        return HttpResponse(status=201)
+        return HttpResponse(json.dumps(result), mimetype='application/json; charset=UTF-8')
 
 
 class ServiceSearchCollection(Resource):
@@ -109,7 +98,7 @@ class ServiceSearchCollection(Resource):
         except:
             return HttpResponse(status=502)
 
-        return HttpResponse(simplejson.dumps(result), mimetype='application/json; chaset=UTF-8')
+        return HttpResponse(json.dumps(result), mimetype='application/json; chaset=UTF-8')
 
 
 class AllStoresServiceCollection(Resource):
@@ -131,7 +120,7 @@ class AllStoresServiceCollection(Resource):
         except:
             return HttpResponse(status=502)
 
-        return HttpResponse(simplejson.dumps(result), mimetype='application/json; charset=UTF-8')
+        return HttpResponse(json.dumps(result), mimetype='application/json; charset=UTF-8')
 
 
 class StoreCollection(Resource):
@@ -145,7 +134,7 @@ class StoreCollection(Resource):
         except:
             return HttpResponse(status=502)
 
-        return HttpResponse(simplejson.dumps(result), mimetype='application/json; chaset=UTF-8')
+        return HttpResponse(json.dumps(result), mimetype='application/json; chaset=UTF-8')
 
 
 def start_purchase(request, market_user, market_name, store):
@@ -153,7 +142,7 @@ def start_purchase(request, market_user, market_name, store):
     adaptor = get_market_adaptor(market_user, market_name)
     user_data = get_market_user_data(request.user, market_user, market_name)
 
-    data = simplejson.loads(request.raw_post_data)
+    data = json.loads(request.raw_post_data)
 
     redirect_uri = get_absolute_reverse_url('wirecloud.fiware.store_redirect_uri', request)
     try:
@@ -161,4 +150,4 @@ def start_purchase(request, market_user, market_name, store):
     except:
         return HttpResponse(status=502)
 
-    return HttpResponse(simplejson.dumps(result), mimetype='application/json; chaset=UTF-8')
+    return HttpResponse(json.dumps(result), mimetype='application/json; chaset=UTF-8')

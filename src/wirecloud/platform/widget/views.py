@@ -29,24 +29,29 @@
 
 
 #
+import json
 import time
 import os
 from urllib import url2pathname
 from urlparse import urljoin
 
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.http import HttpResponse, HttpResponseNotAllowed
+from django.http import HttpResponse, HttpResponseForbidden, Http404
 from django.shortcuts import get_object_or_404
+from django.utils.decorators import method_decorator
 from django.utils.encoding import smart_str
 from django.utils.translation import ugettext as _
+from django.views.decorators.http import require_GET
 from django.views.static import serve
 
+from wirecloud.catalogue.models import CatalogueResource
 from wirecloud.commons.baseviews import Resource
 from wirecloud.commons.exceptions import Http403
 from wirecloud.commons.utils import downloader
 from wirecloud.commons.utils.cache import patch_cache_headers
-from wirecloud.commons.utils.http import get_absolute_reverse_url, get_current_domain, get_xml_error_response
+from wirecloud.commons.utils.http import build_error_response, get_absolute_reverse_url, get_current_domain, get_xml_error_response
 from wirecloud.platform.iwidget.utils import deleteIWidget
 from wirecloud.platform.models import Widget, IWidget
 import wirecloud.platform.widget.utils as showcase_utils
@@ -78,28 +83,32 @@ def deleteWidget(user, name, vendor, version):
 
 class WidgetCodeEntry(Resource):
 
+    @method_decorator(login_required)
     def read(self, request, vendor, name, version):
 
-        widget = get_object_or_404(Widget, resource__vendor=vendor, resource__short_name=name, resource__version=version)
-        if not widget.is_available_for(request.user):
+        resource = get_object_or_404(CatalogueResource.objects.select_related('widget__xhtml'), vendor=vendor, short_name=name, version=version)
+        if not resource.is_available_for(request.user):
             raise Http403()
 
-        # check if the xhtml code has been cached
-        if widget.xhtml.cacheable:
+        if resource.resource_type() != 'widget':
+            raise Http404()
 
-            cache_key = widget.xhtml.get_cache_key(get_current_domain(request))
+        widget_info = json.loads(resource.json_description)
+
+        # check if the xhtml code has been cached
+        if widget_info['code_cacheable'] is True:
+
+            cache_key = resource.widget.xhtml.get_cache_key(get_current_domain(request))
             cache_entry = cache.get(cache_key)
             if cache_entry is not None:
-                response = HttpResponse(cache_entry['code'], mimetype='%s; charset=UTF-8' % cache_entry['content_type'])
+                response = HttpResponse(cache_entry['code'], mimetype=cache_entry['mimetype'])
                 patch_cache_headers(response, cache_entry['timestamp'], cache_entry['timeout'])
                 return response
 
         # process xhtml
-        xhtml = widget.xhtml
-
-        content_type = xhtml.content_type
-        if not content_type:
-            content_type = 'text/html'
+        xhtml = resource.widget.xhtml
+        content_type = widget_info.get('code_content_type', 'text/html')
+        charset = widget_info.get('code_charset', 'utf-8')
 
         force_base = False
         base_url = xhtml.url
@@ -116,12 +125,14 @@ class WidgetCodeEntry(Resource):
                     code = downloader.download_http_content('file://' + os.path.join(showcase_utils.wgt_deployer.root_dir, url2pathname(xhtml.url)), user=request.user)
 
             except Exception, e:
-                # FIXME: Send the error or use the cached original code?
                 msg = _("XHTML code is not accessible: %(errorMsg)s") % {'errorMsg': e.message}
-                return HttpResponse(get_xml_error_response(msg), mimetype='application/xml; charset=UTF-8')
+                return build_error_response(request, 502, msg)
+        else:
+            # Code contents comes as unicode from persistence, we need bytes
+            code = code.encode(charset)
 
         if xhtml.cacheable and (xhtml.code == '' or xhtml.code_timestamp is None):
-            xhtml.code = code
+            xhtml.code = code.decode(charset)
             xhtml.code_timestamp = time.time() * 1000
             xhtml.save()
         elif not xhtml.cacheable and xhtml.code != '':
@@ -129,12 +140,17 @@ class WidgetCodeEntry(Resource):
             xhtml.code_timestamp = None
             xhtml.save()
 
-        code = fix_widget_code(code, base_url, content_type, request, xhtml.use_platform_style, force_base=force_base)
+        try:
+            code = fix_widget_code(code, base_url, content_type, request, charset, xhtml.use_platform_style, force_base=force_base)
+        except UnicodeEncodeError:
+            msg = _('Widget code was not encoded using the specified charset (%(charset)s according to the widget descriptor file).')
+            return build_error_response(request, 502, msg % {'charset': charset})
+
         if xhtml.cacheable:
             cache_timeout = 31536000  # 1 year
             cache_entry = {
                 'code': code,
-                'content_type': content_type,
+                'mimetype': '%s; charset=%s' % (content_type, charset),
                 'timestamp': xhtml.code_timestamp,
                 'timeout': cache_timeout,
             }
@@ -142,15 +158,17 @@ class WidgetCodeEntry(Resource):
         else:
             cache_timeout = 0
 
-        response = HttpResponse(code, mimetype='%s; charset=UTF-8' % content_type)
+        response = HttpResponse(code, mimetype='%s; charset=%s' % (content_type, charset))
         patch_cache_headers(response, xhtml.code_timestamp, cache_timeout)
         return response
 
 
+@require_GET
 def serve_showcase_media(request, vendor, name, version, file_path):
 
-    if request.method != 'GET':
-        return HttpResponseNotAllowed(('GET',))
+    resource = get_object_or_404(CatalogueResource, vendor=vendor, short_name=name, version=version)
+    if not resource.is_available_for(request.user):
+        return HttpResponseForbidden()
 
     base_dir = showcase_utils.wgt_deployer.get_base_dir(vendor, name, version)
     local_path = os.path.join(base_dir, url2pathname(file_path))

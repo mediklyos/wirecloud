@@ -32,19 +32,17 @@
 
 import json
 import os
-from datetime import datetime
 from urlparse import urljoin
 
 from django.conf import settings
 from django.utils.translation import ugettext as _
 
-from wirecloud.catalogue.catalogue_utils import get_latest_resource_version
-from wirecloud.catalogue.get_json_catalogue_data import get_resource_data
 from wirecloud.catalogue.models import WidgetWiring, CatalogueResource, Tag, UserTag
 from wirecloud.commons.exceptions import Http403
 from wirecloud.commons.models import Translation
+from wirecloud.commons.utils.timezone import now
 from wirecloud.commons.utils.template import TemplateParser
-from wirecloud.commons.utils.wgt import WgtDeployer, WgtFile
+from wirecloud.commons.utils.wgt import InvalidContents, WgtDeployer, WgtFile
 
 
 wgt_deployer = WgtDeployer(settings.CATALOGUE_MEDIA_ROOT)
@@ -55,21 +53,25 @@ def extract_resource_media_from_package(template, package, base_path):
     overrides = {}
     resource_info = template.get_resource_info()
 
-    # TODO
-    if template.get_resource_type() == 'operator':
-        wgt_deployer.deploy(package)
+    if resource_info['image_uri'] != '':
+        if not resource_info['image_uri'].startswith(('http://', 'https://', '//', '/')):
+            image_path = os.path.normpath(resource_info['image_uri'])
+            try:
+                package.extract_file(resource_info['image_uri'], os.path.join(base_path, image_path), True)
+            except KeyError:
+                overrides['image_uri'] = urljoin(settings.STATIC_URL, '/images/catalogue/widget_image.png')
+        elif resource_info['image_uri'].startswith(('//', '/')):
+            overrides['image_uri'] = template.get_absolute_url(resource_info['image_uri'])
 
-    if not resource_info['image_uri'].startswith(('http://', 'https://', '//', '/')):
-        image_path = os.path.normpath(resource_info['image_uri'])
-        try:
-            package.extract_file(resource_info['image_uri'], os.path.join(base_path, image_path), True)
-        except KeyError:
-            overrides['image_uri'] = urljoin(settings.STATIC_URL, '/images/catalogue/widget_image.png')
-
-        else:
-            overrides['image_uri'] = image_path
-    elif resource_info['image_uri'].startswith(('//', '/')):
-        overrides['image_uri'] = template.get_absolute_url(resource_info['image_uri'])
+    if resource_info['iphone_image_uri'] != '':
+        if not resource_info['iphone_image_uri'].startswith(('http://', 'https://', '//', '/')):
+            image_path = os.path.normpath(resource_info['iphone_image_uri'])
+            try:
+                package.extract_file(resource_info['iphone_image_uri'], os.path.join(base_path, image_path), True)
+            except KeyError:
+                overrides['iphone_image_uri'] = urljoin(settings.STATIC_URL, '/images/catalogue/widget_image.png')
+        elif resource_info['iphone_image_uri'].startswith(('//', '/')):
+            overrides['iphone_image_uri'] = template.get_absolute_url(resource_info['iphone_image_uri'])
 
     return overrides
 
@@ -84,6 +86,17 @@ def add_widget_from_wgt(file, user, wgt_file=None, template=None, deploy_only=Fa
     if template is None:
         template_contents = wgt_file.get_template()
         template = TemplateParser(template_contents)
+
+    if template.get_resource_type() == 'widget':
+        resource_info = template.get_resource_info()
+        code_url = resource_info['code_url']
+        if not code_url.startswith(('http://', 'https://')):
+            code = wgt_file.read(code_url)
+            try:
+                unicode(code, resource_info['code_charset'])
+            except UnicodeDecodeError:
+                msg = _('%(file_name)s was not encoded using the specified charset (%(charset)s according to the widget descriptor file).')
+                raise InvalidContents(msg % {'file_name': code_url, 'charset': resource_info['code_charset']})
 
     resource_id = (
         template.get_resource_vendor(),
@@ -131,12 +144,12 @@ def add_resource_from_template(template_uri, template, user, fromWGT=False, over
         author=resource_info['author'],
         display_name=resource_info['display_name'],
         description=resource_info['description'],
-        mail=resource_info['mail'],
+        mail=resource_info['email'],
         image_uri=resource_info['image_uri'],
         iphone_image_uri=resource_info.get('iphone_image_uri', ''),
         wiki_page_uri=resource_info['doc_uri'],
         template_uri=template_uri,
-        creation_date=datetime.today(),
+        creation_date=now(),
         popularity='0.0',
         json_description=json.dumps(resource_info)
     )
@@ -178,22 +191,6 @@ def add_resource_from_template(template_uri, template, user, fromWGT=False, over
                 break
 
     return resource
-
-
-def get_added_resource_info(resource, user, request=None):
-
-    info = {
-        'vendor': resource.vendor,
-        'name': resource.short_name,
-        'type': resource.resource_type(),
-        'versions': [get_resource_data(resource, user, request)],
-    }
-
-    latest_version = get_latest_resource_version(resource.short_name, resource.vendor)
-    if latest_version != resource:
-        info['versions'].append(get_resource_data(latest_version, user, request))
-
-    return info
 
 
 def delete_resource(resource, user):

@@ -18,7 +18,11 @@
 # along with Wirecloud.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from django.conf.urls.defaults import patterns, url
+try:
+    from django.conf.urls import patterns, url
+except ImportError:  # pragma: no cover
+    # for Django version less than 1.4
+    from django.conf.urls.defaults import patterns, url
 from django.views.generic.base import TemplateView
 from wirecloud.fiware.marketAdaptor import views
 
@@ -27,7 +31,7 @@ urlpatterns = patterns('wirecloud.fiware.marketAdaptor.views',
         views.AllStoresServiceCollection(permitted_methods=('GET',)),
         name='wirecloud.fiware.market_resource_collection'),
     url(r'^marketplace/(?P<market_user>[\w -]+)/(?P<market_name>[\w -]+)/(?P<store>[\w -]+)/resources/?$',
-        views.ServiceCollection(permitted_methods=('GET', 'POST')),
+        views.ServiceCollection(permitted_methods=('GET',)),
         name='wirecloud.fiware.store_resource_collection'),
     url(r'^marketplace/(?P<market_user>[\w -]+)/(?P<market_name>[\w -]+)/search/(?P<search_string>[\w -]+)/?$',
         views.ServiceSearchCollection(permitted_methods=('GET',)),

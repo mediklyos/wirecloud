@@ -1,0 +1,59 @@
+.styled_form table {
+    padding: 19px 0;
+    width: 100%;
+}
+
+.styled_form .buttons {
+    margin: 2em 0 0.5em;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.error_desc .action_desc {
+    font-weight: bold;
+}
+
+.error_desc .cause_desc {
+    margin-left: 1em;
+}
+
+.styled_form td {
+    padding: 3px 10px;
+    text-align: left;
+}
+
+.styled_form td.label-cell {
+    text-align: right;
+    width: 160px;
+    line-height: 27px;
+}
+
+.styled_form td.label-cell > label {
+    display: inline-block;
+    margin-bottom: 0px;
+}
+
+.styled_form td.label-cell > .required_mark {
+    margin: 0px 0px 0px 5px;
+}
+
+.styled_form td > .styled_text_field,
+.styled_form td > .styled_text_area,
+.styled_form td > .horizontal_layout.styled_file_field
+{
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.styled_form td > .styled_text_field,
+.styled_form td > .styled_text_area
+{
+    margin: 0;
+}
+
+.styled_form td > .styled_file_field,
+.styled_form td > .horizontal_layout.styled_file_field
+{
+    margin-top: 0;
+    margin-bottom: 0;
+}

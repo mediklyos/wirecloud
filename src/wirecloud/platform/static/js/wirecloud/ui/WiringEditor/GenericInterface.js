@@ -224,7 +224,7 @@ WidgetOutputEndpoint.prototype.serialize = function serialize() {
                     context.iObjectClon.repaint();
                 },
                 this.onFinish.bind(this),
-                function () {return true; }
+                function () { return this.enabled && !this.wrapperElement.classList.contains('clon'); }.bind(this)
             );
 
         }//else miniInterface
@@ -939,14 +939,10 @@ WidgetOutputEndpoint.prototype.serialize = function serialize() {
             }
 
             labelDiv.addEventListener('mouseover', function () {
-                if (!this.wiringEditor.recommendationsActivated) {
-                    this.wiringEditor.recommendations.emphasize(anchor);
-                }
+                this.wiringEditor.recommendations.emphasize(anchor);
             }.bind(this));
             labelDiv.addEventListener('mouseout', function () {
-                if (!this.wiringEditor.recommendationsActivated) {
-                    this.wiringEditor.recommendations.deemphasize(anchor);
-                }
+                this.wiringEditor.recommendations.deemphasize(anchor);
             }.bind(this));
 
             // Sticky effect

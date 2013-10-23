@@ -19,6 +19,7 @@
 
 
 import codecs
+import json
 import os
 from shutil import rmtree
 from tempfile import mkdtemp
@@ -27,15 +28,13 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.urlresolvers import reverse
 from django.test import TransactionTestCase, TestCase, Client
-from django.utils import simplejson
 
 import wirecloud.catalogue.utils
 from wirecloud.catalogue.utils import add_resource_from_template
 from wirecloud.catalogue.get_json_catalogue_data import get_resource_data
 from wirecloud.catalogue.models import CatalogueResource, WidgetWiring
-from wirecloud.commons.utils import downloader
 from wirecloud.commons.utils.template import TemplateParseException
-from wirecloud.commons.utils.testcases import FakeDownloader, LocalDownloader, LocalizedTestCase
+from wirecloud.commons.utils.testcases import LocalFileSystemServer, WirecloudTestCase
 from wirecloud.commons.utils.wgt import WgtDeployer
 
 
@@ -43,8 +42,13 @@ from wirecloud.commons.utils.wgt import WgtDeployer
 __test__ = False
 
 
-class AddWidgetTestCase(LocalizedTestCase):
+class AddWidgetTestCase(WirecloudTestCase):
 
+    servers = {
+        'http': {
+            'example.com': LocalFileSystemServer(os.path.join(os.path.dirname(__file__), 'test-data')),
+        },
+    }
     @classmethod
     def setUpClass(cls):
 
@@ -54,20 +58,6 @@ class AddWidgetTestCase(LocalizedTestCase):
         f = open(os.path.join(os.path.dirname(__file__), 'test-data/template1.xml'), 'rb')
         cls.template = f.read()
         f.close()
-
-        cls._original_download_function = staticmethod(downloader.download_http_content)
-        downloader.download_http_content = LocalDownloader({
-            'http': {
-                'example.com': os.path.join(os.path.dirname(__file__), 'test-data'),
-            },
-        })
-
-    @classmethod
-    def tearDownClass(cls):
-
-        downloader.download_http_content = cls._original_download_function
-
-        super(AddWidgetTestCase, cls).tearDownClass()
 
     def setUp(self):
         super(AddWidgetTestCase, self).setUp()
@@ -130,7 +120,7 @@ class CatalogueAPITestCase(TestCase):
         result = self.client.get(base_url + '?orderby=short_name&search_boolean=AND&scope=widget')
 
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertEqual(len(result_json['resources']), 5)
         self.assertTrue(len(result_json['resources'][0]) > 0)
         self.assertEqual(result_json['resources'][0]['name'], 'awidget')
@@ -139,7 +129,7 @@ class CatalogueAPITestCase(TestCase):
         result = self.client.get(base_url + '?orderby=-short_name&search_boolean=AND&scope=widget')
 
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertEqual(len(result_json['resources']), 5)
         self.assertTrue(len(result_json['resources'][0]) > 0)
         self.assertEqual(result_json['resources'][0]['name'], 'zwidget')
@@ -153,7 +143,7 @@ class CatalogueAPITestCase(TestCase):
         result = self.client.get(base_url + '?orderby=-popularity&search_criteria=widget1&search_boolean=AND&scope=widget')
 
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertEqual(len(result_json['resources']), 1)
 
         # Search widgets providing "friendcode2" events
@@ -161,7 +151,7 @@ class CatalogueAPITestCase(TestCase):
         result = self.client.get(base_url + '?orderby=-popularity&search_criteria=friendcode2&search_boolean=AND&scope=widget')
 
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertEqual(len(result_json['resources']), 1)
         self.assertEqual(len(result_json['resources'][0]['versions']), 1)
         widget_data = result_json['resources'][0]
@@ -173,7 +163,7 @@ class CatalogueAPITestCase(TestCase):
         result = self.client.get(base_url + '?orderby=short_name&search_criteria=friendcode2&search_boolean=AND&scope=widget')
 
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertEqual(len(result_json['resources']), 1)
         self.assertEqual(len(result_json['resources'][0]['versions']), 2)
         widget_data = result_json['resources'][0]
@@ -188,13 +178,13 @@ class CatalogueAPITestCase(TestCase):
         # Search widgets using "widget1" as keyword
         result = self.client.get(base_url + '?orderby=-popularity&search_criteria=widget1&search_criteria=&search_criteria=&search_criteria=&search_criteria=&search_criteria=&search_boolean=AND&scope=widget')
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertEqual(len(result_json['resources']), 1)
 
         # Search by keyworkd "widget1" and by event "friendcode2"
         result = self.client.get(base_url + '?orderby=-popularity&search_criteria=widget1&search_criteria=&search_criteria=&search_criteria=&search_criteria=friendcode2&search_criteria=&search_boolean=AND&scope=widget')
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertEqual(len(result_json['resources']), 1)
         self.assertEqual(len(result_json['resources'][0]['versions']), 1)
         widget_data = result_json['resources'][0]
@@ -204,26 +194,26 @@ class CatalogueAPITestCase(TestCase):
         # Search by keyworkd "widget2" and by event "friendcode2"
         result = self.client.get(base_url + '?orderby=-popularity&search_criteria=widget2&search_criteria=&search_criteria=&search_criteria=&search_criteria=friendcode2&search_criteria=&search_boolean=AND&scope=widget')
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertEqual(len(result_json['resources']), 0)
 
         # Search by keyworkd "widget1" or by event "friendcode2"
         result = self.client.get(base_url + '?orderby=-popularity&search_criteria=widget1&search_criteria=&search_criteria=&search_criteria=&search_criteria=friendcode2&search_criteria=&search_boolean=OR&scope=widget')
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertEqual(len(result_json['resources']), 1)
         self.assertEqual(len(result_json['resources'][0]['versions']), 2)
 
     def test_last_version_query(self):
 
         self.client.login(username='test', password='test')
-        resources = simplejson.dumps([
+        resources = json.dumps([
             {'name': 'widget1', 'vendor': 'Test'},
             {'name': 'inexistantwidget', 'vendor': 'Test'},
         ])
         result = self.client.post(reverse('wirecloud_catalogue.resource_versions'), resources, **self.basic_request_meta)
         self.assertEqual(result.status_code, 200)
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertTrue('resources' in result_json)
         self.assertEqual(len(result_json['resources']), 1)
         self.assertEqual(result_json['resources'][0]['lastVersion'], '1.10')
@@ -234,14 +224,14 @@ class CatalogueAPITestCase(TestCase):
         vote_url = reverse('wirecloud_catalogue.resource_vote', kwargs={'vendor': 'Test', 'name': 'widget1', 'version': '1.2'})
 
         self.client.login(username='test', password='test')
-        result = self.client.post(vote_url, simplejson.dumps({'vote': 3}), **self.basic_request_meta)
+        result = self.client.post(vote_url, json.dumps({'vote': 3}), **self.basic_request_meta)
         self.assertEqual(result.status_code, 200)
 
         self.client.login(username='test2', password='test')
-        result = self.client.post(vote_url, simplejson.dumps({'vote': 4}), **self.basic_request_meta)
+        result = self.client.post(vote_url, json.dumps({'vote': 4}), **self.basic_request_meta)
         self.assertEqual(result.status_code, 200)
 
-        result_json = simplejson.loads(result.content)
+        result_json = json.loads(result.content)
         self.assertTrue('voteData' in result_json)
         self.assertTrue('popularity' in result_json['voteData'])
         self.assertEqual(result_json['voteData']['popularity'], '3.5')
@@ -249,19 +239,13 @@ class CatalogueAPITestCase(TestCase):
         self.assertEqual(result_json['voteData']['user_vote'], 4)
 
 
-class PublishTestCase(TransactionTestCase):
+class PublishTestCase(WirecloudTestCase):
 
     tags = ('fiware-ut-4',)
 
     def setUp(self):
         super(PublishTestCase, self).setUp()
-        self._original_function = downloader.download_http_content
-        downloader.download_http_content = FakeDownloader()
         self.user = User.objects.create_user('test', 'test@example.com', 'test')
-
-    def tearDown(self):
-        super(PublishTestCase, self).tearDown()
-        downloader.download_http_content = self._original_function
 
     def read_template(self, *filename):
         f = codecs.open(os.path.join(os.path.dirname(__file__), *filename), 'rb')

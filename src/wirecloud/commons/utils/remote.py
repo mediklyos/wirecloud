@@ -96,6 +96,31 @@ class IWidgetTester(object):
     def name(self):
         return self.element.find_element_by_css_selector('.widget_menu > span').text
 
+    @property
+    def error_count(self):
+        driver = self.testcase.driver
+
+        old_frame = driver.execute_script("return window.frameElement")
+        driver.switch_to_default_content()
+        error_count = driver.execute_script('return opManager.activeWorkspace.getIWidget(%s).internal_iwidget.logManager.errorCount' % self.id)
+        driver.switch_to_frame(old_frame)
+
+        return error_count
+
+    @property
+    def log_entries(self):
+        driver = self.testcase.driver
+
+        old_frame = driver.execute_script("return window.frameElement")
+        driver.switch_to_default_content()
+        log_entries = driver.execute_script('''
+            var iwidget = opManager.activeWorkspace.getIWidget(%s).internal_iwidget;
+            return iwidget.logManager.entries.map(function (entry) { return {date: entry.date.getTime(), level: entry.level, msg: entry.msg}; });
+        ''' % self.id)
+        driver.switch_to_frame(old_frame)
+
+        return log_entries
+
     def perform_action(self, action):
 
         self.element.find_element_by_css_selector('.icon-cogs').click()
@@ -113,6 +138,22 @@ class IWidgetTester(object):
             return driver.execute_script('return opManager.activeWorkspace.getIWidget(%s).name === "%s"' % (self.id, new_name))
 
         WebDriverWait(self.testcase.driver, timeout).until(name_changed)
+
+    def wait_loaded(self, timeout=10):
+
+        def iwidget_loaded(driver):
+            iwidget_element = driver.execute_script('''
+                var iwidget = opManager.activeWorkspace.getIWidget(%s);
+                return iwidget.internal_iwidget.loaded ? iwidget.element : null;
+            ''' % self.id)
+
+            if iwidget_element is not None:
+                self.element = iwidget_element
+                return True
+
+            return False
+
+        WebDriverWait(self.testcase.driver, timeout).until(iwidget_loaded)
 
     def remove(self, timeout=30):
 
@@ -283,7 +324,7 @@ class WirecloudRemoteTestCase(object):
             if view_name == 'marketplace':
                 WebDriverWait(self.driver, 30).until(marketplace_loaded)
 
-    def check_popup_menu(self, must_be, must_be_absent=(), must_be_disabled=()):
+    def check_popup_menu(self, must_be=(), must_be_absent=(), must_be_disabled=()):
 
         time.sleep(0.1)
 
@@ -471,7 +512,7 @@ class WirecloudRemoteTestCase(object):
 
         return iwidget
 
-    def create_workspace_from_catalogue(self, mashup_name, expect_missing_dependencies=None, install_dependencies=False):
+    def create_workspace_from_catalogue(self, mashup_name, expect_missing_dependencies=None, install_dependencies=False, parameters=None):
 
         self.change_main_view('marketplace')
         self.search_resource(mashup_name)
@@ -497,6 +538,18 @@ class WirecloudRemoteTestCase(object):
             continue_button.click()
 
         self.wait_element_visible_by_xpath("//*[contains(@class, 'window_menu')]//*[text()='New Workspace']").click()
+
+        if parameters is not None:
+
+            save_button = self.wait_element_visible_by_xpath("//*[contains(@class, 'window_menu')]//*[text()='Save']")
+            window_menu = self.driver.find_element_by_css_selector('.window_menu.workspace_preferences')
+
+            for parameter_name, parameter_value in parameters.iteritems():
+                param_input = window_menu.find_element_by_css_selector('input[name="' + parameter_name + '"]')
+                self.fill_form_input(param_input, parameter_value)
+
+            save_button.click()
+
         self.wait_wirecloud_ready()
         self.assertTrue(self.get_current_workspace_name().startswith(mashup_name), 'Invalid workspace name after creating workspace from catalogue')
 
@@ -724,7 +777,7 @@ class WirecloudRemoteTestCase(object):
 
         self.search_resource(resource_name)
         resource = self.search_in_catalogue_results(resource_name)
-        self.scroll_and_click(resource.find_element_by_css_selector('.click_for_details'))
+        self.scroll_and_click(resource)
 
         WebDriverWait(self.driver, timeout).until(lambda driver: catalogue_base_element.find_element_by_css_selector('.advanced_operations').is_displayed())
         time.sleep(0.1)
@@ -751,7 +804,7 @@ class WirecloudRemoteTestCase(object):
 
         self.search_resource(resource_name)
         resource = self.search_in_catalogue_results(resource_name)
-        self.scroll_and_click(resource.find_element_by_css_selector('.click_for_details'))
+        self.scroll_and_click(resource)
 
         WebDriverWait(self.driver, timeout).until(lambda driver: catalogue_base_element.find_element_by_css_selector('.advanced_operations').is_displayed())
         time.sleep(0.1)

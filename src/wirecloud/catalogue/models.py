@@ -30,16 +30,21 @@
 
 #
 
+from urlparse import urlparse
+
 from django.db import models
 from django.contrib.auth.models import User, Group
 from django.utils.translation import ugettext_lazy as _
 
 from wirecloud.commons.models import TransModel
+from wirecloud.commons.utils.http import get_absolute_reverse_url
+from wirecloud.commons.utils.template.parsers import TemplateParser
 
 
 class CatalogueResource(TransModel):
 
     RESOURCE_TYPES = ('widget', 'mashup', 'operator')
+    RESOURCE_MIMETYPES = ('application/x-widget+mashable-application-component', 'application/x-mashup+mashable-application-component', 'application/x-operator+mashable-application-component')
     TYPE_CHOICES = (
         (0, 'Widget'),
         (1, 'Mashup'),
@@ -85,6 +90,27 @@ class CatalogueResource(TransModel):
 
         return self.public or self.users.filter(id=user.id).exists() or len(set(self.groups.all()) & set(user.groups.all())) > 0
 
+    def get_template(self, request=None):
+
+        if urlparse(self.template_uri).scheme == '':
+            template_uri = get_absolute_reverse_url('wirecloud_showcase.media', kwargs={
+                'vendor': self.vendor,
+                'name': self.short_name,
+                'version': self.version,
+                'file_path': self.template_uri
+            }, request=request)
+        else:
+            template_uri = self.template_uri
+
+        parser = TemplateParser(self.json_description, base=template_uri)
+        return parser
+
+    def get_processed_info(self, request=None):
+
+        parser = self.get_template(request)
+
+        return parser.get_resource_processed_info()
+
     def delete(self, *args, **kwargs):
 
         from wirecloud.catalogue.utils import wgt_deployer
@@ -98,6 +124,13 @@ class CatalogueResource(TransModel):
         # Delete the related votes for that resource
         UserVote.objects.filter(idResource=self.id).delete()
 
+        if hasattr(self, 'widget'):
+            from wirecloud.platform.models import Widget
+            try:
+                self.widget.delete()
+            except Widget.DoesNotExist:
+                pass
+
         # Delete media resources if needed
         if not self.template_uri.startswith(('http', 'https')):
             wgt_deployer.undeploy(self.vendor, self.short_name, self.version)
@@ -106,6 +139,10 @@ class CatalogueResource(TransModel):
 
     def resource_type(self):
         return self.RESOURCE_TYPES[self.type]
+
+    @property
+    def mimetype(self):
+        return self.RESOURCE_MIMETYPES[self.type]
 
     class Meta:
         unique_together = ("short_name", "vendor", "version")

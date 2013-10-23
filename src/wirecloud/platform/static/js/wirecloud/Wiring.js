@@ -211,8 +211,8 @@
                         msg = interpolate(msg, {operator: operator_info.name}, true);
                         this.events.error.dispatch(msg);
                     }
-                } else {
-                    msg = gettext('%(operator)s operator is not available in for this account');
+                } else {
+                    msg = gettext('%(operator)s operator is not available for this account');
                     msg = interpolate(msg, {operator: operator_info.name}, true);
                     this.events.error.dispatch(msg);
                 }
@@ -262,61 +262,6 @@
         this.workspace.removeEventListener('iwidgetremoved', this._iwidget_removed_listener);
 
         this.workspace = null;
-    };
-
-    Wiring.prototype.getReachableEndpoints = function getReachableEndpoints(iWidget, outputName) {
-        var entry;
-
-        if (iWidget instanceof IWidget) {
-            iWidget = iWidget.id;
-        }
-
-        entry = this.connectablesByWidget[iWidget].outputs[outputName];
-        return entry.getFinalSlots();
-    };
-
-    Wiring.prototype.pushEvent = function pushEvent(iWidget, outputName, data, options) {
-        var entry;
-
-        if (iWidget instanceof IWidget) {
-            iWidget = iWidget.id;
-        }
-
-        entry = this.connectablesByWidget[iWidget].outputs[outputName];
-        entry.propagate(data, options);
-    };
-
-    Wiring.prototype.registerCallback = function registerCallback(iWidget, inputName, callback) {
-        var entry;
-
-        if (iWidget instanceof IWidget) {
-            iWidget = iWidget.id;
-        }
-
-        entry = this.connectablesByWidget[iWidget].inputs[inputName];
-        entry.callback = callback;
-    };
-
-    Wiring.prototype.pushOperatorEvent = function pushOperatorEvent(iOperator, outputName, data) {
-        var entry;
-
-        if (iOperator instanceof Wirecloud.Operator) {
-            iOperator = iOperator.id;
-        }
-
-        entry = this.ioperators[iOperator].outputs[outputName];
-        entry.propagate(data);
-    };
-
-    Wiring.prototype.registerOperatorCallback = function registerOperatorCallback(iOperator, inputName, callback) {
-        var entry;
-
-        if (iOperator instanceof Wirecloud.Operator) {
-            iOperator = iOperator.id;
-        }
-
-        entry = this.ioperators[iOperator].inputs[inputName];
-        entry.callback = callback;
     };
 
     Wiring.prototype.getOperatorPrefValue = function getOperatorPrefValue(iOperator, key) {

@@ -50,19 +50,19 @@ class BasicSeleniumTests(WirecloudSeleniumTestCase):
         # Only one tab => we cannot remove it
         tab_menu_button = tab.find_element_by_css_selector('.icon-tab-menu')
         tab_menu_button.click()
-        self.check_popup_menu(('Rename',), ('Remove',))
+        self.check_popup_menu(('Rename',), must_be_disabled=('Remove',))
 
         new_tab = self.add_tab()
 
         # Now we have two tabs so we can remove any of them
         tab_menu_button = tab.find_element_by_css_selector('.icon-tab-menu')
         tab_menu_button.click()
-        self.check_popup_menu(('Rename', 'Remove'), ())
+        self.check_popup_menu(must_be=('Rename', 'Remove'))
 
         new_tab.click()
         tab_menu_button = new_tab.find_element_by_css_selector('.icon-tab-menu')
         tab_menu_button.click()
-        self.check_popup_menu(('Rename', 'Remove'), ())
+        self.check_popup_menu(must_be=('Rename', 'Remove'))
 
         # Remove the recently created one
         self.popup_menu_click('Remove')
@@ -89,6 +89,32 @@ class BasicSeleniumTests(WirecloudSeleniumTestCase):
         iwidget = self.get_current_iwidgets()[0]
         iwidget.remove()
     test_remove_widget_from_workspace.tags = ('fiware-ut-5',)
+
+    def test_read_only_widgets_cannot_be_removed(self):
+
+        self.login(username='user_with_workspaces')
+
+        self.change_current_workspace('Pending Events')
+
+        tab = self.get_workspace_tab_by_name('Tab 2')
+        tab.click()
+
+        iwidget = self.get_current_iwidgets()[1]
+        iwidget.wait_loaded()
+        close_button = iwidget.element.find_element_by_css_selector('.icon-remove')
+        self.assertTrue('disabled' in close_button.get_attribute('class'))
+
+    def test_tabs_with_read_only_widgets_cannot_be_removed(self):
+
+        self.login(username='user_with_workspaces')
+
+        self.change_current_workspace('Pending Events')
+
+        tab = self.get_workspace_tab_by_name('Tab 2')
+        tab.click()
+        tab_menu_button = self.wait_element_visible_by_css_selector('.icon-tab-menu', element=tab)
+        tab_menu_button.click()
+        self.check_popup_menu(must_be_disabled=('Remove',))
 
     def test_widget_reload(self):
 
@@ -120,9 +146,16 @@ class BasicSeleniumTests(WirecloudSeleniumTestCase):
             self.assertEqual(self.driver.find_element_by_id('booleanPref').text, 'false')
             self.assertEqual(self.driver.find_element_by_id('passwordPref').text, 'default')
 
-        # Change widget settings
+        # Open widget settings
         iwidget.perform_action('Settings')
 
+        # Check dialog shows correct values
+        self.assertEqual(self.driver.find_element_by_css_selector('.window_menu [name="list"]').get_attribute('value'), 'default')
+        self.assertEqual(self.driver.find_element_by_css_selector('.window_menu [name="text"]').get_attribute('value'), 'initial text')
+        self.assertFalse(self.driver.find_element_by_css_selector('.window_menu [name="boolean"]').is_selected())
+        self.assertEqual(self.driver.find_element_by_css_selector('.window_menu [name="password"]').get_attribute('value'), 'default')
+
+        # Change widget settings
         list_input = self.driver.find_element_by_css_selector('.window_menu [name="list"]')
         self.fill_form_input(list_input, '1')  # value1
         text_input = self.driver.find_element_by_css_selector('.window_menu [name="text"]')
@@ -140,9 +173,16 @@ class BasicSeleniumTests(WirecloudSeleniumTestCase):
             self.assertEqual(self.driver.find_element_by_id('booleanPref').text, 'true')
             self.assertEqual(self.driver.find_element_by_id('passwordPref').text, 'password')
 
-        # Change widget settings again
+        # Open widget settings again
         iwidget.perform_action('Settings')
 
+        # Check dialog shows correct values
+        self.assertEqual(self.driver.find_element_by_css_selector('.window_menu [name="list"]').get_attribute('value'), '1')
+        self.assertEqual(self.driver.find_element_by_css_selector('.window_menu [name="text"]').get_attribute('value'), 'test')
+        self.assertTrue(self.driver.find_element_by_css_selector('.window_menu [name="boolean"]').is_selected())
+        self.assertEqual(self.driver.find_element_by_css_selector('.window_menu [name="password"]').get_attribute('value'), 'password')
+
+        # Change widget settings
         text_input = self.driver.find_element_by_css_selector('.window_menu [name="text"]')
         self.fill_form_input(text_input, '')
         password_input = self.driver.find_element_by_css_selector('.window_menu [name="password"]')
@@ -157,7 +197,17 @@ class BasicSeleniumTests(WirecloudSeleniumTestCase):
             self.assertEqual(self.driver.find_element_by_id('passwordPref').text, '')
 
         # Use api test widget to test other API features
+
+        # Open widget settings again
+        api_test_iwidget.perform_action('Settings')
+
+        text_input = self.driver.find_element_by_css_selector('.window_menu [name="text"]')
+        self.fill_form_input(text_input, 'Success!!')
+
+        self.driver.find_element_by_xpath("//*[contains(@class, 'window_menu')]//*[text()='Accept']").click()
+
         with api_test_iwidget:
+            self.assertEqual(self.driver.find_element_by_id('pref_registercallback_test').text, 'Success!!')
             self.assertEqual(self.driver.find_element_by_id('makerequest_test').text, 'Success!!')
             prop_input = self.driver.find_element_by_css_selector('#update_prop_input')
             self.fill_form_input(prop_input, 'new value')
@@ -172,6 +222,20 @@ class BasicSeleniumTests(WirecloudSeleniumTestCase):
         with api_test_iwidget:
             prop_input = self.driver.find_element_by_css_selector('#update_prop_input')
             self.assertEqual(prop_input.get_attribute('value'), 'new value')
+
+            self.assertEqual(api_test_iwidget.error_count, 0)
+            old_log_entries = len(api_test_iwidget.log_entries)
+            # Work around some firefox driver bugs
+            self.driver.execute_script('arguments[0].click()', self.driver.find_element_by_css_selector('#check_logs_button'))
+            WebDriverWait(self.driver, timeout=2).until(lambda driver: driver.find_element_by_id('widget_log_test').text == 'Success!!')
+            self.assertEqual(api_test_iwidget.error_count, 2)
+            self.assertEqual(len(api_test_iwidget.log_entries), old_log_entries + 4)
+
+            # Work around some firefox driver bugs
+            self.driver.execute_script('arguments[0].click()', self.driver.find_element_by_css_selector('#check_endpoint_exceptions_button'))
+            WebDriverWait(self.driver, timeout=2).until(lambda driver: driver.find_element_by_id('endpoint_exceptions_test').text == 'Success!!')
+            self.assertEqual(api_test_iwidget.error_count, 5)
+            self.assertEqual(len(api_test_iwidget.log_entries), old_log_entries + 7)
 
     test_basic_widget_functionalities.tags = ('fiware-ut-5',)
 
@@ -202,7 +266,7 @@ class BasicSeleniumTests(WirecloudSeleniumTestCase):
         self.assertIsNotNone(target_iwidget.element)
 
         tab = self.get_workspace_tab_by_name('Tab 2')
-        tab.click();
+        tab.click()
 
         with target_iwidget:
             try:
@@ -344,6 +408,17 @@ class BasicSeleniumTests(WirecloudSeleniumTestCase):
             text_div = self.driver.find_element_by_id('wiringOut')
             self.assertEqual(text_div.text, 'hello world!!')
     test_create_workspace_from_catalogue.tags = ('fiware-ut-5',)
+
+    @uses_extra_resources(('Wirecloud_ParameterizedMashup_1.0.zip',), shared=True)
+    def test_create_workspace_from_catalogue_using_parameters(self):
+
+        self.login()
+        self.create_workspace_from_catalogue('ParameterizedMashup', parameters={'param': 'parameterized value'})
+
+        iwidgets = self.get_current_iwidgets()
+
+        with iwidgets[0]:
+            self.assertEqual(self.driver.find_element_by_id('textPref').text, 'parameterized value')
 
     def test_create_workspace_from_catalogue_duplicated_workspaces(self):
 

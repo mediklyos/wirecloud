@@ -33,7 +33,6 @@ function Dragboard(tab, workspace, dragboardElement) {
     // *********************************
     // PRIVATE VARIABLES
     // *********************************
-    this.loaded = false;
     this.currentCode = 1;
 
     // HTML Elements
@@ -87,7 +86,6 @@ function Dragboard(tab, workspace, dragboardElement) {
                 this.currentCode =  curIWidget.code + 1;
             }
         }
-        this.loaded = true;
     };
 
     Dragboard.prototype.iwidgetLoaded = function (iWidgetId) {
@@ -117,10 +115,6 @@ function Dragboard(tab, workspace, dragboardElement) {
 
     Dragboard.prototype.getIWidget = function (iWidgetId) {
         return this.iWidgets.get(iWidgetId);
-    };
-
-    Dragboard.prototype.getWorkspace = function () {
-        return this.workspace;
     };
 
     Dragboard.prototype._updateIWidgetInfo = function (iWidget) {

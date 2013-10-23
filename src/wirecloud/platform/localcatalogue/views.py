@@ -21,6 +21,7 @@
 import json
 from cStringIO import StringIO
 import os
+import zipfile
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -39,13 +40,11 @@ from wirecloud.commons.utils import downloader
 from wirecloud.commons.utils.http import authentication_required, build_error_response, get_content_type, supported_request_mime_types
 from wirecloud.commons.utils.template import TemplateParseException
 from wirecloud.commons.utils.transaction import commit_on_http_success
-from wirecloud.commons.utils.wgt import WgtFile
+from wirecloud.commons.utils.wgt import InvalidContents, WgtFile
 from wirecloud.platform.markets.utils import get_market_managers
 from wirecloud.platform.models import Widget, IWidget
-from wirecloud.platform.localcatalogue.semantics import add_widget_semantic_data
-from wirecloud.platform.localcatalogue.semantics import remove_widget_semantic_data
-from wirecloud.platform.localcatalogue.utils import install_resource_to_user, get_or_add_resource_from_available_marketplaces
-from wirecloud.platform.widget.utils import get_or_add_widget_from_catalogue
+from wirecloud.platform.localcatalogue.signals import resource_uninstalled
+from wirecloud.platform.localcatalogue.utils import install_resource_to_user
 
 
 class ResourceCollection(Resource):
@@ -55,7 +54,7 @@ class ResourceCollection(Resource):
 
         resources = {}
         for resource in CatalogueResource.objects.filter(Q(public=True) | Q(users=request.user) | Q(groups=request.user.groups.all())):
-            options = json.loads(resource.json_description)
+            options = resource.get_processed_info(request)
             resources[resource.local_uri_part] = options
 
         return HttpResponse(json.dumps(resources), mimetype='application/json; chatset=UTF-8')
@@ -132,50 +131,41 @@ class ResourceCollection(Resource):
                     return build_error_response(request, 409, _('Content cannot be downloaded'))
 
             if packaged:
-                downloaded_file = StringIO(downloaded_file)
-                file_contents = WgtFile(downloaded_file)
+
+                try:
+                    downloaded_file = StringIO(downloaded_file)
+                    file_contents = WgtFile(downloaded_file)
+
+                except zipfile.BadZipfile, e:
+
+                    return build_error_response(request, 400, unicode(e))
+
             else:
                 file_contents = downloaded_file
 
-        # TODO for now, install dependencies if force_create is true
-        install_dep = force_create
         try:
+
             resource = install_resource_to_user(request.user, file_contents=file_contents, templateURL=templateURL, packaged=packaged, raise_conflicts=force_create)
 
-        except TemplateParseException, e:
+        except (TemplateParseException, InvalidContents), e:
 
-            return build_error_response(request, 400, unicode(e.msg))
+            return build_error_response(request, 400, unicode(e))
 
         except IntegrityError:
 
             return build_error_response(request, 409, _('Resource already exists'))
 
-        if install_dep and resource.resource_type() == 'mashup':
-            resources = [json.loads(resource.json_description)]
-            workspace_info = json.loads(resource.json_description)
-            for tab_entry in workspace_info['tabs']:
-                for resource in tab_entry['resources']:
-                    widget = get_or_add_widget_from_catalogue(resource.get('vendor'), resource.get('name'), resource.get('version'), request.user)
-                    resources.append(json.loads(widget.resource.json_description))
-
-            for id_, op in workspace_info['wiring']['operators'].iteritems():
-                op_id_args = op['name'].split('/')
-                op_id_args.append(request.user)
-                operator = get_or_add_resource_from_available_marketplaces(*op_id_args)
-                resources.append(json.loads(operator.json_description))
-
-            return HttpResponse(json.dumps(resources), status=201, mimetype='application/json; charset=UTF-8')
-
-        elif install_dep:
-            return HttpResponse('[' + resource.json_description + ']', status=201, mimetype='application/json; charset=UTF-8')
-        else:
-            return HttpResponse(resource.json_description, status=201, mimetype='application/json; charset=UTF-8')
+        return HttpResponse(json.dumps(resource.get_processed_info(request)), status=201, mimetype='application/json; charset=UTF-8')
 
 
 class ResourceEntry(Resource):
 
     @authentication_required
     def read(self, request, vendor, name, version):
+
+        resource = get_object_or_404(CatalogueResource, vendor=vendor, short_name=name, version=version)
+        if not request.user.is_superuser and not resource.is_available_for(request.user):
+            return HttpResponse(status=403)
 
         file_name = '_'.join((vendor, name, version)) + '.wgt'
         base_dir = catalogue_utils.wgt_deployer.get_base_dir(vendor, name, version)
@@ -185,11 +175,13 @@ class ResourceEntry(Resource):
             return HttpResponse(status=404)
 
         if not getattr(settings, 'USE_XSENDFILE', False):
-            return serve(request, local_path, document_root='/')
+            response = serve(request, local_path, document_root='/')
         else:
             response = HttpResponse()
             response['X-Sendfile'] = smart_str(local_path)
-            return response
+
+        response['Content-Type'] = resource.mimetype
+        return response
 
     @authentication_required
     @commit_on_http_success
@@ -197,6 +189,11 @@ class ResourceEntry(Resource):
 
         resource = get_object_or_404(CatalogueResource, vendor=vendor, short_name=name, version=version)
         resource.users.remove(request.user)
+
+        resource_uninstalled.send(sender=resource, user=request.user)
+
+        if resource.public == False and resource.users.count() == 0 and resource.groups.count() == 0:
+            resource.delete()
 
         if resource.resource_type() == 'widget':
             result = {'removedIWidgets': []}
@@ -219,3 +216,16 @@ class ResourceEntry(Resource):
                 return HttpResponse(json.dumps(result), mimetype='application/json; charset=UTF-8')
 
         return HttpResponse(status=204)
+
+
+class ResourceDescriptionEntry(Resource):
+
+    @authentication_required
+    def read(self, request, vendor, name, version):
+
+        resource = get_object_or_404(CatalogueResource, vendor=vendor, short_name=name, version=version)
+        if not request.user.is_superuser and not resource.is_available_for(request.user):
+            return HttpResponse(status=403)
+
+        resource_info = resource.get_processed_info(request)
+        return HttpResponse(json.dumps(resource_info), mimetype='application/json; charset=UTF-8')

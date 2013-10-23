@@ -17,8 +17,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with Wirecloud.  If not, see <http://www.gnu.org/licenses/>.
 
-from django.conf.urls.defaults import patterns, url
-from wirecloud.fp74caast.views import TenantCollection
+try:
+    from django.conf.urls import patterns, url
+except ImportError:  # pragma: no cover
+    # for Django version less than 1.4
+    from django.conf.urls.defaults import patterns, url
 
 
 urlpatterns = patterns('wirecloud.fp74caast.views',
@@ -35,20 +38,12 @@ urlpatterns = patterns('wirecloud.fp74caast.views',
         'deploy_tenant_ac',
         name='wirecloud.4caast.deploy_tenant_ac'),
 
-    url(r'^api/4caast-enabling/start_tenant_ac$',
-        'start_tenant_ac',
-        name='wirecloud.4caast.start_tenant_ac'),
-
-    url(r'^api/4caast-enabling/stop_tenant_ac$',
-        'stop_tenant_ac',
-        name='wirecloud.4caast.stop_tenant_ac'),
-
     url(r'^api/4caast-enabling/undeploy_tenant_ac$',
         'undeploy_tenant_ac',
         name='wirecloud.4caast.undeploy_tenant_ac'),
 
     url(r'^(?P<creator>[^/]+)/(?P<workspace>[^/]+)/4caast-enabling/add_saas_tenant$',
-        TenantCollection(permitted_methods=('GET',)),
+        'add_saas_tenant',
         name='wirecloud.4caast.add_saas_tenant'),
 
     url(r'^(?P<creator>[^/]+)/(?P<workspace>[^/]+)/4caast-enabling/remove_saas_tenant$',

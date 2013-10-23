@@ -1,72 +1,29 @@
 # -*- coding: utf-8 -*-
 
-# Copyright 2012-2013 Universidad Politécnica de Madrid
+# Copyright (c) 2012-2013 CoNWeT Lab., Universidad Politécnica de Madrid
 
 # This file is part of Wirecloud.
 
 # Wirecloud is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
 # Wirecloud is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# GNU Affero General Public License for more details.
 
-# You should have received a copy of the GNU General Public License
+# You should have received a copy of the GNU Affero General Public License
 # along with Wirecloud.  If not, see <http://www.gnu.org/licenses/>.
 
-from datetime import datetime
 import json
-import rdflib
-from lxml import etree
 
-from django.conf import settings
-
+from wirecloud.catalogue.models import CatalogueResource
+from wirecloud.commons.utils.template.writers import rdf
+from wirecloud.commons.utils.template.writers import xml
 from wirecloud.platform.get_data import get_variable_value_from_varname
-from wirecloud.platform.models import IWidget, Tab, TabPreference, WorkspacePreference
-
-
-#definition of namespaces that will be used in rdf documents
-WIRE = rdflib.Namespace("http://wirecloud.conwet.fi.upm.es/ns/widget#")
-WIRE_M = rdflib.Namespace("http://wirecloud.conwet.fi.upm.es/ns/mashup#")
-FOAF = rdflib.Namespace('http://xmlns.com/foaf/0.1/')
-RDF = rdflib.Namespace('http://www.w3.org/1999/02/22-rdf-syntax-ns#')
-RDFS = rdflib.Namespace('http://www.w3.org/2000/01/rdf-schema#')
-MSM = rdflib.Namespace('http://cms-wg.sti2.org/ns/minimal-service-model#')
-OWL = rdflib.Namespace('http://www.w3.org/2002/07/owl#')
-DCTERMS = rdflib.Namespace('http://purl.org/dc/terms/')
-USDL = rdflib.Namespace('http://www.linked-usdl.org/ns/usdl-core#')
-LEGAL = rdflib.Namespace('http://www.linked-usdl.org/ns/usdl-legal#')
-PRICE = rdflib.Namespace('http://www.linked-usdl.org/ns/usdl-pricing#')
-SLA = rdflib.Namespace('http://www.linked-usdl.org/ns/usdl-sla#')
-BLUEPRINT = rdflib.Namespace('http://bizweb.sap.com/TR/blueprint#')
-VCARD = rdflib.Namespace('http://www.w3.org/2006/vcard/ns#')
-XSD = rdflib.Namespace('http://www.w3.org/2001/XMLSchema#')
-CTAG = rdflib.Namespace('http://commontag.org/ns#')
-ORG = rdflib.Namespace('http://www.w3.org/ns/org#')
-SKOS = rdflib.Namespace('http://www.w3.org/2004/02/skos/core#')
-TIME = rdflib.Namespace('http://www.w3.org/2006/time#')
-GR = rdflib.Namespace('http://purl.org/goodrelations/v1#')
-DOAP = rdflib.Namespace('http://usefulinc.com/ns/doap#')
-
-
-def typeCode2typeText(typeCode):
-    if typeCode == 'S':
-            return 'text'
-    elif typeCode == 'N':
-            return 'number'
-    elif typeCode == 'D':
-            return 'date'
-    elif typeCode == 'B':
-            return 'boolean'
-    elif typeCode == 'L':
-            return 'list'
-    elif typeCode == 'P':
-            return 'password'
-
-    return None
+from wirecloud.platform.models import IWidget
 
 
 def get_iwidgets_description(included_iwidgets):
@@ -84,369 +41,151 @@ def get_workspace_description(workspace):
     return get_iwidgets_description(included_iwidgets)
 
 
-def build_template_from_workspace(options, workspace, user):
+def process_iwidget(workspace, iwidget, wiring, parametrization, readOnlyWidgets):
 
-    # process
-    vendor = options.get('vendor')
-    name = options.get('name')
-    version = options.get('version')
-    email = options.get('email')
+    widget = iwidget.widget
+    iwidget_id = str(iwidget.id)
+    iwidget_params = {}
+    if iwidget_id in parametrization:
+        iwidget_params = parametrization[iwidget_id]
 
-    description = options.get('description')
-    if description:
-        description = description + " \n " + get_workspace_description(workspace)
-    else:
-        description = get_workspace_description(workspace)
+    # input and output endpoints
+    outputs = widget.get_related_events()
 
-    author = options.get('author')
-    if not author:
-        author = user.username
+    for output_endpoint in outputs:
+        wiring['outputs'].append({
+            'name': output_endpoint.name,
+            'type': output_endpoint.type,
+            'label': output_endpoint.label,
+            'description': output_endpoint.description,
+            'friendcode': output_endpoint.friend_code,
+        })
 
-    imageURI = options.get('imageURI')
-    if not imageURI:
-        imageURI = settings.MEDIA_URL + 'images/headshot_mashup.jpg'
+    inputs = widget.get_related_slots()
 
-    wikiURI = options.get('wikiURI')
-    if not wikiURI:
-        wikiURI = 'http://trac.morfeo-project.org/trac/ezwebplatform/wiki/options'
+    for input_endpoint in inputs:
+        wiring['inputs'].append({
+            'name': input_endpoint.name,
+            'type': input_endpoint.type,
+            'label': input_endpoint.label,
+            'description': input_endpoint.description,
+            'friendcode': input_endpoint.friend_code,
+            'actionlabel': input_endpoint.action_label,
+        })
 
-    readOnlyWidgets = options.get('readOnlyWidgets', False)
-    readOnlyConnectables = options.get('readOnlyConnectables', False)
+    # preferences
+    widget_preferences = widget.get_related_preferences()
+    preferences = {}
+    for pref in widget_preferences:
+        status = 'normal'
+        if pref.name in iwidget_params:
+            iwidget_param_desc = iwidget_params[pref.name]
+            if iwidget_param_desc['source'] == 'default':
+                # Do not issue a Preference element for this preference
+                continue
+            value = iwidget_param_desc['value']
+            status = iwidget_param_desc['status']
+        else:
+            value = get_variable_value_from_varname(workspace.creator, iwidget, pref.name)
 
-    parametrization = options.get('parametrization')
-    if not parametrization:
-        parametrization = {}
-
-    # Build the template
-    workspace_tabs = Tab.objects.filter(workspace=workspace).order_by('position')
-    included_iwidgets = IWidget.objects.filter(tab__workspace=workspace)
-
-    template = etree.Element('Template', xmlns="http://morfeo-project.org/2007/Template")
-    desc = etree.Element('Catalog.ResourceDescription')
-    template.append(desc)
-    etree.SubElement(desc, 'Vendor').text = vendor
-    etree.SubElement(desc, 'Name').text = name
-    etree.SubElement(desc, 'Version').text = version
-    etree.SubElement(desc, 'Author').text = author
-    etree.SubElement(desc, 'Mail').text = email
-    etree.SubElement(desc, 'Description').text = description
-    etree.SubElement(desc, 'ImageURI').text = imageURI
-    etree.SubElement(desc, 'WikiURI').text = wikiURI
-
-    resources = etree.SubElement(desc, 'IncludedResources')
-
-    # Workspace preferences
-    preferences = WorkspacePreference.objects.filter(workspace=workspace)
-    for preference in preferences:
-        if not preference.inherit:
-            etree.SubElement(resources, 'Preference', name=preference.name, value=preference.value)
-
-    # Tabs and their preferences
-    tabs = {}
-    for tab in workspace_tabs:
-        tabElement = etree.SubElement(resources, 'Tab', name=tab.name, id=str(tab.id))
-        tabs[tab.id] = tabElement
-        preferences = TabPreference.objects.filter(tab=tab.pk)
-        for preference in preferences:
-            if not preference.inherit:
-                etree.SubElement(tabElement, 'Preference', name=preference.name, value=preference.value)
-
-    wiring = etree.SubElement(template, 'Platform.Wiring')
-
-    # iWidgets
-    for iwidget in included_iwidgets:
-        widget = iwidget.widget
-        iwidget_id = str(iwidget.id)
-        iwidget_params = {}
-        if iwidget_id in parametrization:
-            iwidget_params = parametrization[iwidget_id]
-
-        resource = etree.SubElement(tabs[iwidget.tab.id], 'Resource', id=iwidget_id, vendor=widget.resource.vendor, name=widget.resource.short_name, version=widget.resource.version, title=iwidget.name)
-        if readOnlyWidgets:
-            resource.set('readonly', 'true')
-
-        position = iwidget.position
-        etree.SubElement(resource, 'Position', x=str(position.posX), y=str(position.posY), z=str(position.posZ))
-        etree.SubElement(resource, 'Rendering', height=str(position.height),
-            width=str(position.width), minimized=str(position.minimized),
-            fulldragboard=str(position.fulldragboard), layout=str(iwidget.layout))
-
-        widget_preferences = widget.get_related_preferences()
-        for pref in widget_preferences:
-            status = 'normal'
-            if pref.name in iwidget_params:
-                iwidget_param_desc = iwidget_params[pref.name]
-                if iwidget_param_desc['source'] == 'default':
-                    # Do not issue a Preference element for this preference
-                    continue
-                value = iwidget_param_desc['value']
-                status = iwidget_param_desc['status']
-            else:
-                value = get_variable_value_from_varname(workspace.creator, iwidget, pref.name)
-
-            element = etree.SubElement(resource, 'Preference', name=pref.name, value=value)
-            if status != 'normal':
-                element.set('readonly', 'true')
-                if status != 'readonly':
-                    element.set('hidden', 'true')
-
-        widget_properties = widget.get_related_properties()
-        for prop in widget_properties:
-            status = 'normal'
-            if prop.name in iwidget_params:
-                iwidget_param_desc = iwidget_params[prop.name]
-                if iwidget_param_desc['source'] == 'default':
-                    # Do not issue a Property element for this property
-                    continue
-                value = iwidget_param_desc['value']
-                status = iwidget_param_desc['status']
-            else:
-                value = get_variable_value_from_varname(workspace.creator, iwidget, prop.name)
-
-            element = etree.SubElement(resource, 'Property', name=prop.name, value=value)
-            if status != 'normal':
-                element.set('readonly', 'true')
-
-        outputs = widget.get_related_events()
-
-        for output_endpoint in outputs:
-            wiring.append(etree.Element('OutputEndpoint', name=output_endpoint.name, type=typeCode2typeText(output_endpoint.type), label=output_endpoint.label, friendcode=output_endpoint.friend_code))
-
-        inputs = widget.get_related_slots()
-
-        for input_endpoint in inputs:
-            wiring.append(etree.Element('InputEndpoint', name=input_endpoint.name, type=typeCode2typeText(input_endpoint.type), label=input_endpoint.label, friendcode=input_endpoint.friend_code))
-
-    # wiring
-    try:
-        wiring_status = json.loads(workspace.wiringStatus)
-    except:
-        wiring_status = {
-            "operators": {},
-            "connections": [],
+        preferences[pref.name] = {
+            'readonly': status != 'normal',
+            'hidden': status == 'hidden',
+            'value': value,
         }
 
-    for id_, operator in wiring_status['operators'].iteritems():
-        etree.SubElement(wiring, 'Operator', id=id_, name=operator['name'])
+    # iWidget properties
+    widget_properties = widget.get_related_properties()
+    properties = {}
+    for prop in widget_properties:
+        status = 'normal'
+        if prop.name in iwidget_params:
+            iwidget_param_desc = iwidget_params[prop.name]
+            if iwidget_param_desc['source'] == 'default':
+                # Do not issue a Property element for this property
+                continue
+            value = iwidget_param_desc['value']
+            status = iwidget_param_desc['status']
+        else:
+            value = get_variable_value_from_varname(workspace.creator, iwidget, prop.name)
 
-    for connection in wiring_status['connections']:
-        element = etree.SubElement(wiring, 'Connection')
-        if readOnlyConnectables:
-            element.set('readonly', 'true')
+        properties[prop.name] = {
+            'readonly': status != 'normal',
+            'value': value,
+        }
 
-        etree.SubElement(element, 'Source', type=connection['source']['type'], id=str(connection['source']['id']), endpoint=connection['source']['endpoint'])
-        etree.SubElement(element, 'Target', type=connection['target']['type'], id=str(connection['target']['id']), endpoint=connection['target']['endpoint'])
+    return {
+        'id': iwidget_id,
+        'vendor': iwidget.widget.resource.vendor,
+        'name': iwidget.widget.resource.short_name,
+        'version': iwidget.widget.resource.version,
+        'title': iwidget.name,
+        'readonly': readOnlyWidgets,
+        'properties': properties,
+        'preferences': preferences,
+        'position': {
+            'x': str(iwidget.position.posX),
+            'y': str(iwidget.position.posY),
+            'z': str(iwidget.position.posZ),
+        },
+        'rendering': {
+            'width': str(iwidget.position.width),
+            'height': str(iwidget.position.height),
+            'layout': str(iwidget.layout),
+            'fulldragboard': str(iwidget.position.fulldragboard),
+            'minimized': str(iwidget.position.minimized),
+        },
+    }
 
-    return template
+def build_json_template_from_workspace(options, workspace, user):
+    options['type'] = 'mashup'
+    options['params'] = []
+    options['translations'] = {}
+    options['translation_index_usage'] = {}
 
-
-def build_rdf_template_from_workspace(options, workspace, user):
-
-    graph = rdflib.Graph()
-
-    graph.bind('dcterms', DCTERMS)
-    graph.bind('foaf', FOAF)
-    graph.bind('usdl', USDL)
-    graph.bind('vcard', VCARD)
-    graph.bind('wire', WIRE)
-    graph.bind('wire_m', WIRE_M)
-
-    # build the root node
-    mashup_uri = WIRE_M[options.get('vendor') + '/' + options.get('name') + '/' + options.get('version')]
-    graph.add((mashup_uri, rdflib.RDF.type, WIRE_M['Mashup']))
-
-    # add basic info
-    provider = rdflib.BNode()
-    graph.add((provider, rdflib.RDF.type, GR['BussisnessEntity']))
-    graph.add((mashup_uri, USDL['hasProvider'], provider))
-    graph.add((provider, FOAF['name'], rdflib.Literal(options.get('vendor'))))
-    graph.add((mashup_uri, USDL['versionInfo'], rdflib.Literal(options.get('version'))))
-    graph.add((mashup_uri, DCTERMS['title'], rdflib.Literal(options.get('name'))))
-
-    author = rdflib.BNode()
-    graph.add((author, rdflib.RDF.type, FOAF['Person']))
-    graph.add((mashup_uri, DCTERMS['creator'], author))
-
-    if options.get('author'):
-        graph.add((author, FOAF['name'], rdflib.Literal(options.get('author'))))
+    description = options.get('description', '').strip()
+    if description == '':
+        options['description'] = get_workspace_description(workspace)
     else:
-        graph.add((author, FOAF['name'], rdflib.Literal(user)))
+        options['description'] = description + '\n' + get_workspace_description(workspace)
 
-    if options.get('description'):
-        description = options.get('description') + '\n' + get_workspace_description(workspace)
-    else:
-        description = get_workspace_description(workspace)
+    if options.get('author', '').strip() == '':
+        options['author'] = unicode(user)
 
-    graph.add((mashup_uri, DCTERMS['description'], rdflib.Literal(description)))
-    graph.add((mashup_uri, WIRE['hasImageUri'], rdflib.URIRef(options.get('imageURI'))))
-
-    if options.get('wikiURI'):
-        graph.add((mashup_uri, FOAF['page'], rdflib.URIRef(options.get('wikiURI'))))
-
-    addr = rdflib.BNode()
-    graph.add((addr, rdflib.RDF.type, VCARD['Work']))
-    graph.add((mashup_uri, VCARD['addr'], addr))
-    graph.add((addr, VCARD['email'], rdflib.Literal(options.get('email'))))
-
-    # add preferences and tabs
-    preferences = WorkspacePreference.objects.filter(workspace=workspace)
-    workspace_tabs = Tab.objects.filter(workspace=workspace).order_by('position')
-
-    # Workspace preferences
-    for preference in preferences:
-        if not preference.inherit:
-            pref = rdflib.BNode()
-            graph.add((pref, rdflib.RDF.type, WIRE_M['MashupPreference']))
-            graph.add((mashup_uri, WIRE_M['hasMashupPreference'], pref))
-            graph.add((pref, DCTERMS['title'], rdflib.Literal(preference.name)))
-            graph.add((pref, WIRE['value'], rdflib.Literal(preference.value)))
-
-    # Tabs and their preferences
-    tabs = {}
-    tab_index = 0  # This variable is used to know tab order in rdf
-    for tab in workspace_tabs:
-        tab_element = rdflib.BNode()
-        graph.add((tab_element, rdflib.RDF.type, WIRE_M['Tab']))
-        graph.add((mashup_uri, WIRE_M['hasTab'], tab_element))
-        graph.add((tab_element, DCTERMS['title'], rdflib.Literal(tab.name)))
-        graph.add((tab_element, WIRE['index'], rdflib.Literal(str(tab_index))))
-        tab_index = tab_index + 1
-
-        tabs[tab.id] = tab_element
-        preferences = TabPreference.objects.filter(tab=tab.pk)
-        for preference in preferences:
-            if not preference.inherit:
-                pref = rdflib.BNode()
-                graph.add((pref, rdflib.RDF.type, WIRE_M['TabPreference']))
-                graph.add((tab_element, WIRE_M['hasTabPreference'], pref))
-                graph.add((pref, DCTERMS['title'], rdflib.Literal(preference.name)))
-                graph.add((pref, WIRE['value'], rdflib.Literal(preference.value)))
-
-    # Create wiring node
-    wiring = rdflib.BNode()
-    graph.add((wiring, rdflib.RDF.type, WIRE['PlatformWiring']))
-    graph.add((mashup_uri, WIRE_M['hasMashupWiring'], wiring))
+    options['requirements'] = []
 
     readOnlyWidgets = options.get('readOnlyWidgets', False)
     parametrization = options.get('parametrization')
     if not parametrization:
         parametrization = {}
 
-    included_iwidgets = IWidget.objects.filter(tab__workspace=workspace)
-    # iWidgets
-    iwidgets = {}
-    for iwidget in included_iwidgets:
-        widget = iwidget.widget
-        iwidget_id = str(iwidget.id)
-        iwidget_params = {}
-        if iwidget_id in parametrization:
-            iwidget_params = parametrization[iwidget_id]
+    # Workspace preferences
+    options['preferences'] = {}
+    for preference in workspace.workspacepreference_set.all():
+        if not preference.inherit:
+            options['preferences'][preference.name] = preference.value
 
-        resource = rdflib.BNode()
-        iwidgets[iwidget_id] = resource
-        graph.add((resource, WIRE_M['iWidgetId'], rdflib.Literal(str(resource))))
-        graph.add((resource, rdflib.RDF.type, WIRE_M['iWidget']))
-        graph.add((tabs[iwidget.tab.id], WIRE_M['hasiWidget'], resource))
-        provider = rdflib.BNode()
-        graph.add((provider, rdflib.RDF.type, GR['BussisnessEntity']))
-        graph.add((provider, FOAF['name'], rdflib.Literal(widget.resource.vendor)))
-        graph.add((resource, USDL['hasProvider'], provider))
-        graph.add((resource, DCTERMS['title'], rdflib.Literal(iwidget.name)))
-        graph.add((resource, USDL['versionInfo'], rdflib.Literal(widget.resource.version)))
-        graph.add((resource, RDFS['label'], rdflib.Literal(widget.resource.short_name)))
+    # Tabs and their preferences
+    options['tabs'] = []
+    options['wiring'] = {
+        'inputs': [],
+        'outputs': [],
+    }
+    for tab in workspace.tab_set.order_by('position'):
+        preferences = {}
+        for preference in tab.tabpreference_set.all():
+            if not preference.inherit:
+                preferences[preference.name] = preference.value
 
-        if readOnlyWidgets:
-            graph.add((resource, WIRE['readonly'], rdflib.Literal('true')))
+        resources = []
+        for iwidget in tab.iwidget_set.select_related('widget__resource', 'position').all():
+            resources.append(process_iwidget(workspace, iwidget, options['wiring'], parametrization, readOnlyWidgets))
 
-        # iWidget position
-        position = iwidget.position
-        pos = rdflib.BNode()
-        graph.add((pos, rdflib.RDF.type, WIRE_M['Position']))
-        graph.add((resource, WIRE_M['hasPosition'], pos))
-        graph.add((pos, WIRE_M['x'], rdflib.Literal(str(position.posX))))
-        graph.add((pos, WIRE_M['y'], rdflib.Literal(str(position.posY))))
-        graph.add((pos, WIRE_M['z'], rdflib.Literal(str(position.posZ))))
-
-        # iWidget rendering
-        rend = rdflib.BNode()
-        graph.add((rend, rdflib.RDF.type, WIRE_M['iWidgetRendering']))
-        graph.add((resource, WIRE_M['hasiWidgetRendering'], rend))
-        graph.add((rend, WIRE['renderingHeight'], rdflib.Literal(str(position.height))))
-        graph.add((rend, WIRE['renderingWidth'], rdflib.Literal(str(position.width))))
-        graph.add((rend, WIRE_M['minimized'], rdflib.Literal(str(position.minimized))))
-        graph.add((rend, WIRE_M['fullDragboard'], rdflib.Literal(str(position.fulldragboard))))
-        graph.add((rend, WIRE_M['layout'], rdflib.Literal(str(iwidget.layout))))
-
-        # iWidget preferences
-        widget_preferences = widget.get_related_preferences()
-        for pref in widget_preferences:
-            status = 'normal'
-            if pref.name in iwidget_params:
-                iwidget_param_desc = iwidget_params[pref.name]
-                if iwidget_param_desc['source'] == 'default':
-                    # Do not issue a Preference element for this preference
-                    continue
-                value = iwidget_param_desc['value']
-                status = iwidget_param_desc['status']
-            else:
-                value = get_variable_value_from_varname(workspace.creator, iwidget, pref.name)
-
-            element = rdflib.BNode()
-            graph.add((element, rdflib.RDF.type, WIRE_M['iWidgetPreference']))
-            graph.add((resource, WIRE_M['hasiWidgetPreference'], element))
-            graph.add((element, DCTERMS['title'], rdflib.Literal(pref.name)))
-            graph.add((element, WIRE['value'], rdflib.Literal(value)))
-
-            if status != 'normal':
-                graph.add((element, WIRE_M['readonly'], rdflib.Literal('true')))
-                if status != 'readonly':
-                    graph.add((element, WIRE_M['hiden'], rdflib.Literal('true')))
-
-        # iWidget properties
-        widget_properties = widget.get_related_properties()
-        for prop in widget_properties:
-            status = 'normal'
-            if prop.name in iwidget_params:
-                iwidget_param_desc = iwidget_params[prop.name]
-                if iwidget_param_desc['source'] == 'default':
-                    # Do not issue a Property element for this property
-                    continue
-                value = iwidget_param_desc['value']
-                status = iwidget_param_desc['status']
-            else:
-                value = get_variable_value_from_varname(workspace.creator, iwidget, prop.name)
-
-            element = rdflib.BNode()
-            graph.add((element, rdflib.RDF.type, WIRE_M['iWidgetProperty']))
-            graph.add((resource, WIRE_M['hasiWidgetProperty'], element))
-            graph.add((element, DCTERMS['title'], rdflib.Literal(prop.name)))
-            graph.add((element, WIRE['value'], rdflib.Literal(value)))
-
-            if status != 'normal':
-                graph.add((element, WIRE_M['readonly'], rdflib.Literal('true')))
-
-        # input and output endpoints
-        outputs = widget.get_related_events()
-
-        for output_endpoint in outputs:
-            ev = rdflib.BNode()
-            graph.add((ev, rdflib.RDF.type, WIRE['OutputEndpoint']))
-            graph.add((wiring, WIRE['hasOutputEndpoint'], ev))
-            graph.add((ev, DCTERMS['title'], rdflib.Literal(output_endpoint.name)))
-            graph.add((ev, WIRE['type'], rdflib.Literal(typeCode2typeText(output_endpoint.type))))
-            graph.add((ev, RDFS['label'], rdflib.Literal(output_endpoint.label)))
-            graph.add((ev, WIRE['friendcode'], rdflib.Literal(output_endpoint.friend_code)))
-
-        inputs = widget.get_related_slots()
-
-        for input_endpoint in inputs:
-            sl = rdflib.BNode()
-            graph.add((sl, rdflib.RDF.type, WIRE['InputEndpoint']))
-            graph.add((wiring, WIRE['hasInputEndpoint'], sl))
-            graph.add((sl, DCTERMS['title'], rdflib.Literal(input_endpoint.name)))
-            graph.add((sl, WIRE['type'], rdflib.Literal(typeCode2typeText(input_endpoint.type))))
-            graph.add((sl, RDFS['label'], rdflib.Literal(input_endpoint.label)))
-            graph.add((sl, WIRE['frindcode'], rdflib.Literal(input_endpoint.friend_code)))
+        options['tabs'].append({
+            'name': tab.name,
+            'resources': resources,
+            'preferences': preferences,
+        })
 
     # wiring conections and operators
     readOnlyConnectables = options.get('readOnlyConnectables', False)
@@ -458,204 +197,60 @@ def build_rdf_template_from_workspace(options, workspace, user):
             "connections": [],
         }
 
-    operators = {}
+    options['wiring']['operators'] = {}
     for id_, operator in wiring_status['operators'].iteritems():
-        op = rdflib.BNode()
-        operators[id_] = op
-        graph.add((op, rdflib.RDF.type, WIRE_M['iOperator']))
-        graph.add((wiring, WIRE_M['hasiOperator'], op))
-        graph.add((op, DCTERMS['title'], rdflib.Literal(operator['name'])))
-        graph.add((op, WIRE_M['iOperatorId'], rdflib.Literal(str(op))))
+        operator_data = {
+            'name': operator['name'],
+            'preferences': {},
+        }
 
+        vendor, name, version = operator['name'].split('/')
+        resource = CatalogueResource.objects.get(vendor=vendor, short_name=name, version=version)
+        operator_info = json.loads(resource.json_description)
+        operator_params = {}  # TODO for now, operator preferences cannot be parameterized
+        for pref_index, preference in enumerate(operator_info['preferences']):
+
+            status = 'normal'
+            if preference['name'] in operator_params:
+                ioperator_param_desc = operator_params[preference['name']]
+                if ioperator_param_desc['source'] == 'default':
+                    # Do not issue a Preference element for this preference
+                    continue
+                value = ioperator_param_desc['value']
+                status = ioperator_param_desc['status']
+            elif preference['name'] in operator['preferences']:
+                value = operator['preferences'][preference['name']]
+            else:
+                value = preference['default_value']
+
+            operator_data['preferences'][preference['name']] = {
+                'readonly': status != 'normal',
+                'hidden': status == 'hidden',
+                'value': value,
+            }
+
+        options['wiring']['operators'][id_] = operator_data
+
+    options['wiring']['connections'] = []
     for connection in wiring_status['connections']:
-        element = rdflib.BNode()
-        graph.add((element, rdflib.RDF.type, WIRE_M['Connection']))
-        graph.add((wiring, WIRE_M['hasConnection'], element))
+        options['wiring']['connections'].append({
+            'source': connection['source'],
+            'target': connection['target'],
+            'readonly': readOnlyConnectables,
+        })
 
-        if readOnlyConnectables:
-            graph.add((element, WIRE_M['readonly'], rdflib.Literal('true')))
-
-        source = rdflib.BNode()
-        graph.add((source, rdflib.RDF.type, WIRE_M['Source']))
-        graph.add((element, WIRE_M['hasSource'], source))
-        graph.add((source, WIRE['type'], rdflib.Literal(connection['source']['type'])))
-
-        if connection['source']['type'] == 'ioperator':
-            id_ = str(operators[str(connection['source']['id'])])
-        else:
-            id_ = str(iwidgets[str(connection['source']['id'])])
-
-        graph.add((source, WIRE_M['sourceId'], rdflib.Literal(id_)))
-        graph.add((source, WIRE_M['endpoint'], rdflib.Literal(connection['source']['endpoint'])))
-
-        target = rdflib.BNode()
-        graph.add((target, rdflib.RDF.type, WIRE_M['Target']))
-        graph.add((element, WIRE_M['hasTarget'], target))
-        graph.add((target, WIRE['type'], rdflib.Literal(connection['target']['type'])))
-
-        if connection['target']['type'] == 'ioperator':
-            id_ = str(operators[str(connection['target']['id'])])
-        else:
-            id_ = str(iwidgets[str(connection['target']['id'])])
-
-        graph.add((target, WIRE_M['targetId'], rdflib.Literal(id_)))
-        graph.add((target, WIRE_M['endpoint'], rdflib.Literal(connection['target']['endpoint'])))
-
-    # Create the view node
-    if 'views' not in wiring_status:
-        wiring_status['views'] = ()
-
-    for view in wiring_status['views']:
-        wiring_view = rdflib.BNode()
-        graph.add((wiring_view, rdflib.RDF.type, WIRE_M['WiringView']))
-        graph.add((wiring, WIRE_M['hasWiringView'], wiring_view))
-        graph.add((wiring_view, RDFS['label'], rdflib.Literal(view['label'])))
-
-        for key, widget in view['iwidgets'].iteritems():
-            widget_view = rdflib.BNode()
-            graph.add((widget_view, rdflib.RDF.type, WIRE_M['View']))
-            graph.add((widget_view, WIRE['type'], rdflib.Literal('widget')))
-            graph.add((wiring_view, WIRE_M['hasView'], widget_view))
-            graph.add((widget_view, WIRE['id'], rdflib.Literal(str(iwidgets[key]))))
-            position = rdflib.BNode()
-            graph.add((position, rdflib.RDF.type, WIRE_M['Position']))
-            graph.add((widget_view, WIRE_M['hasPosition'], position))
-            graph.add((position, WIRE_M['x'], rdflib.Literal(str(widget['position']['posX']))))
-            graph.add((position, WIRE_M['y'], rdflib.Literal(str(widget['position']['posY']))))
-            i = 0
-            for sourc in widget['endPointsInOuts']['sources']:
-                source = rdflib.BNode()
-                graph.add((source, rdflib.RDF.type, WIRE_M['Source']))
-                graph.add((widget_view, WIRE_M['hasSource'], source))
-                graph.add((source, RDFS['label'], rdflib.Literal(sourc)))
-                graph.add((source, WIRE['index'], rdflib.Literal(str(i))))
-                i += 1
-
-            i = 0
-            for targ in widget['endPointsInOuts']['targets']:
-                target = rdflib.BNode()
-                graph.add((target, rdflib.RDF.type, WIRE_M['Target']))
-                graph.add((widget_view, WIRE_M['hasTarget'], target))
-                graph.add((target, RDFS['label'], rdflib.Literal(targ)))
-                graph.add((target, WIRE['index'], rdflib.Literal(str(i))))
-                i += 1
-
-        for key, operator in view['operators'].iteritems():
-            operator_view = rdflib.BNode()
-            graph.add((operator_view, rdflib.RDF.type, WIRE_M['View']))
-            graph.add((operator_view, WIRE['type'], rdflib.Literal('operator')))
-            graph.add((wiring_view, WIRE_M['hasView'], operator_view))
-            graph.add((operator_view, WIRE['id'], rdflib.Literal(str(operators[key]))))
-            position = rdflib.BNode()
-            graph.add((position, rdflib.RDF.type, WIRE_M['Position']))
-            graph.add((operator_view, WIRE_M['hasPosition'], position))
-            graph.add((position, WIRE_M['x'], rdflib.Literal(str(operator['position']['posX']))))
-            graph.add((position, WIRE_M['y'], rdflib.Literal(str(operator['position']['posY']))))
-            i = 0
-            for sourc in operator['endPointsInOuts']['sources']:
-                source = rdflib.BNode()
-                graph.add((source, rdflib.RDF.type, WIRE_M['Source']))
-                graph.add((operator_view, WIRE_M['hasSource'], source))
-                graph.add((source, RDFS['label'], rdflib.Literal(sourc)))
-                graph.add((source, WIRE['index'], rdflib.Literal(str(i))))
-                i += 1
-
-            i = 0
-            for targ in operator['endPointsInOuts']['targets']:
-                target = rdflib.BNode()
-                graph.add((target, rdflib.RDF.type, WIRE_M['Target']))
-                graph.add((operator_view, WIRE_M['hasTarget'], target))
-                graph.add((target, RDFS['label'], rdflib.Literal(targ)))
-                graph.add((target, WIRE['index'], rdflib.Literal(str(i))))
-                i += 1
-
-    return graph
+    options['wiring']['views'] = wiring_status.get('views', ())
 
 
-def build_usdl_from_workspace(options, workspace, user, template_url, usdl_info=None):
+def build_template_from_workspace(options, workspace, user):
 
-    graph = rdflib.Graph()
+    build_json_template_from_workspace(options, workspace, user)
 
-    usdl_uri = WIRE_M[options.get('vendor') + '/' + options.get('name') + '/' + options.get('version')]
-    vendor = None
+    return xml.build_xml_document(options)
 
-    if usdl_info is not None:
-        graph.parse(data=usdl_info['data'], format=usdl_info['content_type'])
-        for service in graph.subjects(rdflib.RDF.type, USDL['Service']):
-            usdl_uri = service
 
-        # remove triples that are going to be replaced
-        for title in graph.objects(usdl_uri, DCTERMS['title']):
-            graph.remove((usdl_uri, DCTERMS['title'], title))
+def build_rdf_template_from_workspace(options, workspace, user):
 
-        for version in graph.objects(usdl_uri, USDL['versionInfo']):
-            graph.remove((usdl_uri, USDL['versionInfo'], version))
+    build_json_template_from_workspace(options, workspace, user)
 
-        for abstract in graph.objects(usdl_uri, DCTERMS['abstract']):
-            graph.remove((usdl_uri, DCTERMS['abstract'], abstract))
-
-        for description in graph.objects(usdl_uri, DCTERMS['description']):
-                graph.remove((usdl_uri, DCTERMS['description'], description))
-
-        for page in graph.objects(usdl_uri, FOAF['page']):
-            graph.remove((usdl_uri, FOAF['page'], page))
-
-        for depiction in graph.objects(usdl_uri, FOAF['depiction']):
-            graph.remove((usdl_uri, FOAF['depiction'], depiction))
-
-        for created in graph.objects(usdl_uri, DCTERMS['created']):
-            graph.remove((usdl_uri, DCTERMS['created'], created))
-
-        for modified in graph.objects(usdl_uri, DCTERMS['modified']):
-            graph.remove((usdl_uri, DCTERMS['modified'], page))
-
-        for provider in graph.objects(usdl_uri, USDL['hasProvider']):
-
-            for name in graph.objects(provider, FOAF['name']):
-                graph.remove((provider, FOAF['name'], name))
-
-            vendor = provider
-
-    else:
-        graph.add((usdl_uri, rdflib.RDF.type, USDL['Service']))
-
-    graph.add((usdl_uri, DCTERMS['title'], rdflib.Literal(options.get('name'))))
-    graph.add((usdl_uri, USDL['versionInfo'], rdflib.Literal(options.get('version'))))
-
-    if vendor is None:
-        vendor = rdflib.BNode()
-        graph.add((vendor, rdflib.RDF.type, GR['BussisnessEntity']))
-        graph.add((usdl_uri, USDL['hasProvider'], vendor))
-
-    graph.add((vendor, FOAF['name'], rdflib.Literal(options.get('vendor'))))
-
-    description = get_workspace_description(workspace)
-
-    if options.get('description'):
-        graph.add((usdl_uri, DCTERMS['abstract'], rdflib.Literal(options.get('description'))))
-        description = options.get('description') + '\n' + description
-
-    graph.add((usdl_uri, DCTERMS['description'], rdflib.Literal(description)))
-
-    graph.add((usdl_uri, FOAF['page'], rdflib.URIRef(options.get('wikiURI'))))
-    graph.add((usdl_uri, FOAF['depiction'], rdflib.URIRef(options.get('imageURI'))))
-
-    date = datetime.today()
-    graph.add((usdl_uri, DCTERMS['created'], rdflib.Literal(str(date))))
-    graph.add((usdl_uri, DCTERMS['modified'], rdflib.Literal(str(date))))
-
-    abstract = rdflib.URIRef(template_url)
-    graph.add((abstract, rdflib.RDF.type, BLUEPRINT['Artefact']))
-    graph.add((usdl_uri, USDL['utilizedResource'], abstract))
-    graph.add((abstract, BLUEPRINT['location'], abstract))
-
-    #Mashup parts
-    included_iwidgets = IWidget.objects.filter(tab__workspace=workspace)
-    for iwidget in included_iwidgets:
-        widget = iwidget.widget
-        part = WIRE_M[widget.resource.vendor + '/' + widget.resource.short_name + '/' + widget.resource.version]
-        graph.add((part, rdflib.RDF.type, USDL['Service']))
-        graph.add((usdl_uri, USDL['hasPartMandatory'], part))
-        graph.add((part, DCTERMS['title'], rdflib.Literal(iwidget.name)))
-
-    return graph
+    return rdf.build_rdf_graph(options)

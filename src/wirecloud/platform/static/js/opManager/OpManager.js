@@ -76,21 +76,30 @@ var OpManagerFactory = function () {
         }
 
         /*****WORKSPACE CALLBACK***/
-        var createWSSuccess = function(transport) {
-            var response = transport.responseText;
-            var wsInfo = JSON.parse(response);
-
-            //create the new workspace and go to it
-            var workspace = new Workspace(wsInfo);
-            this.workspaceInstances.set(wsInfo.id, workspace);
+        var createWSSuccess = function(onSuccess, response) {
+            var workspace_data = JSON.parse(response.responseText);
+            var workspace = new Workspace(workspace_data);
+            this.workspaceInstances.set(workspace.getId(), workspace);
             this.changeActiveWorkspace(workspace);
+
+            if (typeof onSuccess === 'function') {
+                try {
+                    onSuccess(workspace);
+                } catch (e) {}
+            }
         };
 
-        var createWSError = function(transport, e) {
+        var createWSError = function(onFailure, response) {
             var logManager = LogManagerFactory.getInstance();
-            var msg = logManager.formatError(gettext("Error creating a workspace: %(errorMsg)s."), transport, e);
+            var msg = logManager.formatError(gettext("Error creating a workspace: %(errorMsg)s."), response);
             logManager.log(msg);
-        }
+
+            if (typeof onFailure === 'function') {
+                try {
+                    onFailure(msg);
+                } catch (e) {}
+            }
+        };
 
 
         // *********************************
@@ -164,6 +173,7 @@ var OpManagerFactory = function () {
         OpManager.prototype.addWorkspaceFromMashup = function addWorkspaceFromMashup(resource, options) {
 
             options = EzWebExt.merge({
+                allow_renaming: true,
                 dry_run: false
             }, options);
 
@@ -209,7 +219,8 @@ var OpManagerFactory = function () {
             Wirecloud.io.makeRequest(Wirecloud.URLs.WORKSPACE_COLLECTION, {
                 method: 'POST',
                 contentType: 'application/json',
-                postBody: Object.toJSON({
+                postBody: JSON.stringify({
+                    'allow_renaming': options.allow_renaming,
                     'mashup': resource.getURI(),
                     'dry_run': options.dry_run
                 }),
@@ -431,13 +442,20 @@ var OpManagerFactory = function () {
             return false;
         }
 
-        OpManager.prototype.addWorkspace = function addWorkspace(newName) {
+        OpManager.prototype.addWorkspace = function addWorkspace(newName, options) {
+            if (options == null) {
+                options = {};
+            }
+
             Wirecloud.io.makeRequest(Wirecloud.URLs.WORKSPACE_COLLECTION, {
                 method: 'POST',
                 contentType: 'application/json',
-                postBody: Object.toJSON({name: newName}),
-                onSuccess: createWSSuccess.bind(this),
-                onFailure: createWSError.bind(this)
+                postBody: JSON.stringify({
+                    allow_renaming: !!options.allow_renaming,
+                    name: newName
+                }),
+                onSuccess: createWSSuccess.bind(this, options.onSuccess),
+                onFailure: createWSError.bind(this, options.onFailure)
             });
         };
 

@@ -53,6 +53,8 @@
 
             if (newValue !== oldValue) {
                 variable.annotate(newValue);
+            } else {
+                delete new_values[varName];
             }
         }
 
@@ -77,7 +79,7 @@
         var i, prefs, pref, fields;
 
         fields = {};
-        prefs = iwidget.widget.getTemplate().getUserPrefs();
+        prefs = iwidget.widget.preferenceList;
 
         for (i = 0; i < prefs.length; i++) {
             pref = prefs[i];
@@ -86,7 +88,7 @@
                 fields[pref.varName] = pref.getInterfaceDescription(iwidget);
             }
         }
-        this._current_iwidget = iwidget.internal_iwidget; // TODO
+        this._current_iwidget = iwidget;
         this._current_form = new Form(fields, {
             buttonArea: this.windowBottom
         });

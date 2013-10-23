@@ -1,6 +1,9 @@
 /*
  *     Copyright (c) 2013 CoNWeT Lab., Universidad Politécnica de Madrid
+<<<<<<< HEAD
  *     Copyright (c) 2013 Center for Open Middleware
+=======
+>>>>>>> upstream/develop
  *
  *     This file is part of Wirecloud Platform.
  *

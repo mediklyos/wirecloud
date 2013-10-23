@@ -48,6 +48,38 @@
         });
     };
 
+    ObjectStorageAPI.prototype.createContainer = function createContainer(container, token, options) {
+        var url = this.url + encodeURIComponent(container);
+
+        if (options == null) {
+            options = {};
+        }
+
+        MashupPlatform.http.makeRequest(url, {
+            method: "PUT",
+            requestHeaders: {
+                "Accept": "application/json",
+                "X-Auth-Token": token
+            },
+            onSuccess: function (transport) {
+                var created = transport.status_code === 204;
+                if (typeof options.onSuccess === 'function') {
+                    options.onSuccess(created);
+                }
+            },
+            onFailure: function (transport) {
+                if (typeof options.onFailure === 'function') {
+                    options.onFailure();
+                }
+            },
+            onComplete: function (transport) {
+                if (typeof options.onComplete === 'function') {
+                    options.onComplete();
+                }
+            }
+        });
+    };
+
     ObjectStorageAPI.prototype.listContainer = function listContainer(container, token, options) {
 
         var url = this.url + encodeURIComponent(container);
@@ -115,7 +147,9 @@
     ObjectStorageAPI.prototype.uploadFile = function uploadFile(container, file, token, options) {
         var file_name, url;
 
-        if (!(file instanceof Blob)) {
+        // This line doesn't work as widgets/operators run in a separated enviroment (so their Blob/File classes are different that the ones available in the environment where Wirecloud is running)
+        //if (!(file instanceof Blob)) {
+        if (file == null || !('type' in file)) {
             throw new TypeError('file must be an instance of Blob');
         }
 

@@ -14,7 +14,7 @@
         <field to="auth.user" name="creator" rel="ManyToOneRel">1</field>
         <field type="TextField" name="description">This widget is used to test some of the features of the Wirecloud platform</field>
         <field type="CharField" name="license"><None></None></field>
-        <field type="DateTimeField" name="creation_date">2011-05-13 12:24:03</field>
+        <field type="DateTimeField" name="creation_date">2011-05-13T12:24:03+01:00</field>
         <field type="CharField" name="image_uri">images/catalogue.png</field>
         <field type="CharField" name="iphone_image_uri">images/catalogue_iphone.png</field>
         <field type="CharField" name="wiki_page_uri">http://forge.morfeo-project.org/wiki/index.php/Gadgets_EzWeb</field>
@@ -46,7 +46,7 @@
         <field to="auth.user" name="creator" rel="ManyToOneRel">1</field>
         <field type="TextField" name="description">This mashup is used to test some of the features of the Wirecloud platform</field>
         <field type="CharField" name="license"><None></None></field>
-        <field type="DateTimeField" name="creation_date">2011-05-13 12:24:03</field>
+        <field type="DateTimeField" name="creation_date">2011-05-13T12:24:03+01:00</field>
         <field type="CharField" name="image_uri">images/catalogue.png</field>
         <field type="CharField" name="iphone_image_uri">images/catalogue_iphone.png</field>
         <field type="CharField" name="wiki_page_uri">http://forge.morfeo-project.org/wiki/index.php/Gadgets_EzWeb</field>
@@ -69,12 +69,12 @@
         <field to="auth.user" name="creator" rel="ManyToOneRel">1</field>
         <field type="TextField" name="description">Test operator description</field>
         <field type="CharField" name="license"><None></None></field>
-        <field type="DateTimeField" name="creation_date">2011-05-13 12:24:03</field>
+        <field type="DateTimeField" name="creation_date">2011-05-13T12:24:03+01:00</field>
         <field type="CharField" name="image_uri">images/catalogue.png</field>
         <field type="CharField" name="iphone_image_uri">images/catalogue_iphone.png</field>
         <field type="CharField" name="wiki_page_uri">doc/index.html</field>
         <field type="CharField" name="template_uri">Wirecloud_TestOperator_1.0.wgt</field>
-        <field type="TextField" name="json_description">{"default_lang": "en", "vendor": "Wirecloud", "description": "Test operator description", "code_content_type": "text/javascript", "translations": {}, "iphone_image_uri": "", "translation_index_usage": {}, "display_name": "TestOperator", "properties": [], "js_files": ["js/main.js"], "requirements": [], "preferences": [], "author": "admin", "wiring": {"inputs": [{"friendcode": "test_friend_code", "actionlabel": "", "name": "input", "label": "input", "type": "text", "description": ""}], "outputs": [{"friendcode": "test_friend_code", "description": "", "type": "text", "name": "output", "label": "output"}]}, "name": "TestOperator", "image_uri": "images/catalogue.png", "version": "1.0", "context": [], "widget_height": "", "mail": "test@example.com", "type": "operator", "widget_width": "", "doc_uri": "doc/index.html"}</field>
+        <field type="TextField" name="json_description">{"default_lang": "en", "vendor": "Wirecloud", "description": "Test operator description", "code_content_type": "text/javascript", "translations": {}, "iphone_image_uri": "", "translation_index_usage": {}, "display_name": "TestOperator", "properties": [], "js_files": ["js/main.js"], "requirements": [], "preferences": [{"default_value": "", "name": "prefix", "label": "Prefix", "type": "text", "description": ""}], "author": "admin", "wiring": {"inputs": [{"friendcode": "test_friend_code", "actionlabel": "", "name": "input", "label": "input", "type": "text", "description": ""}], "outputs": [{"friendcode": "test_friend_code", "description": "", "type": "text", "name": "output", "label": "output"}]}, "name": "TestOperator", "image_uri": "images/catalogue.png", "version": "1.0", "context": [], "widget_height": "", "mail": "test@example.com", "type": "operator", "widget_width": "", "doc_uri": "doc/index.html"}</field>
         <field type="DecimalField" name="popularity">0.0</field>
         <field type="BooleanField" name="fromWGT">True</field>
     </object>
@@ -92,7 +92,7 @@
         <field to="auth.user" name="creator" rel="ManyToOneRel">1</field>
         <field type="TextField" name="description">This mashup is used to test some of the features of the Wirecloud platform</field>
         <field type="CharField" name="license"><None></None></field>
-        <field type="DateTimeField" name="creation_date">2011-05-13 12:24:03</field>
+        <field type="DateTimeField" name="creation_date">2011-05-13T12:24:03+01:00</field>
         <field type="CharField" name="image_uri">images/catalogue.png</field>
         <field type="CharField" name="iphone_image_uri">images/catalogue_iphone.png</field>
         <field type="CharField" name="wiki_page_uri">http://forge.morfeo-project.org/wiki/index.php/Gadgets_EzWeb</field>

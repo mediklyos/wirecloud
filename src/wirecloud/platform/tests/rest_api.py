@@ -28,9 +28,7 @@ from django.test import Client
 
 from wirecloud.catalogue import utils as catalogue
 from wirecloud.catalogue.models import CatalogueResource
-import wirecloud.commons
-from wirecloud.commons.utils import downloader
-from wirecloud.commons.utils.testcases import LocalDownloader, WirecloudTestCase
+from wirecloud.commons.utils.testcases import WirecloudTestCase
 from wirecloud.commons.utils.wgt import WgtDeployer
 from wirecloud.platform.models import IWidget, Tab, VariableValue, Workspace, UserWorkspace
 from wirecloud.platform.widget import utils as showcase
@@ -40,27 +38,185 @@ from wirecloud.platform.widget import utils as showcase
 __test__ = False
 
 
+def check_get_requires_permission(self, url):
+
+    # Authenticate
+    self.client.login(username='emptyuser', password='admin')
+
+    response = self.client.get(url, HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 403)
+
+
+def check_get_requires_authentication(self, url, test_after_request=None):
+
+    response = self.client.get(url, HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 401)
+    self.assertTrue('WWW-Authenticate' in response)
+
+    # Error response should be a dict
+    self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
+    response_data = json.loads(response.content)
+    self.assertTrue(isinstance(response_data, dict))
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+    # Check using Accept: text/html
+    response = self.client.get(url, HTTP_ACCEPT='text/html')
+    self.assertEqual(response.status_code, 401)
+    self.assertTrue('WWW-Authenticate' in response)
+
+    # Content type of the response should be text/html
+    self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+
+def check_post_requires_authentication(self, url, data, test_after_request=None):
+
+    response = self.client.post(url, data, content_type='application/json', HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 401)
+    self.assertTrue('WWW-Authenticate' in response)
+
+    # Error response should be a dict
+    self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
+    response_data = json.loads(response.content)
+    self.assertTrue(isinstance(response_data, dict))
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+    # Check using Accept: text/html
+    response = self.client.post(url, data, content_type='application/json', HTTP_ACCEPT='text/html')
+    self.assertEqual(response.status_code, 401)
+    self.assertTrue('WWW-Authenticate' in response)
+
+    # Content type of the response should be text/html
+    self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+
+def check_post_requires_permission(self, url, data, test_after_request=None):
+
+    # Authenticate
+    self.client.login(username='emptyuser', password='admin')
+
+    response = self.client.post(url, data, content_type='application/json', HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 403)
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+
+def check_post_bad_request_syntax(self, url):
+
+    # Authenticate
+    self.client.login(username='user_with_workspaces', password='admin')
+
+    # Test bad json syntax
+    response = self.client.post(url, 'bad syntax', content_type='application/json', HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 400)
+    response_data = json.loads(response.content)
+    self.assertTrue(isinstance(response_data, dict))
+
+
+def check_put_bad_request_syntax(self, url):
+
+    # Authenticate
+    self.client.login(username='user_with_workspaces', password='admin')
+
+    # Test bad json syntax
+    response = self.client.put(url, 'bad syntax', content_type='application/json', HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 400)
+    response_data = json.loads(response.content)
+    self.assertTrue(isinstance(response_data, dict))
+
+
+def check_put_requires_authentication(self, url, data, test_after_request=None):
+
+    response = self.client.put(url, data, HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 401)
+    self.assertTrue('WWW-Authenticate' in response)
+
+    # Error response should be a dict
+    self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
+    response_data = json.loads(response.content)
+    self.assertTrue(isinstance(response_data, dict))
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+    # Check using Accept: text/html
+    response = self.client.put(url, data, HTTP_ACCEPT='text/html')
+    self.assertEqual(response.status_code, 401)
+    self.assertTrue('WWW-Authenticate' in response)
+
+    # Content type of the response should be text/html
+    self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+
+def check_put_requires_permission(self, url, data):
+
+    # Authenticate
+    self.client.login(username='emptyuser', password='admin')
+
+    response = self.client.put(url, data, content_type='application/json', HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 403)
+
+
+def check_delete_requires_authentication(self, url, test_after_request=None):
+
+    response = self.client.delete(url, HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 401)
+    self.assertTrue('WWW-Authenticate' in response)
+
+    # Error response should be a dict
+    self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
+    response_data = json.loads(response.content)
+    self.assertTrue(isinstance(response_data, dict))
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+    # Check using Accept: text/html
+    response = self.client.delete(url, HTTP_ACCEPT='text/html')
+    self.assertEqual(response.status_code, 401)
+    self.assertTrue('WWW-Authenticate' in response)
+
+    # Content type of the response should be text/html
+    self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+
+def check_delete_requires_permission(self, url, test_after_request=None):
+
+    # Authenticate
+    self.client.login(username='emptyuser', password='admin')
+
+    response = self.client.delete(url, HTTP_ACCEPT='application/json')
+    self.assertEqual(response.status_code, 403)
+
+    if test_after_request is not None:
+        test_after_request(self)
+
+
 class ApplicationMashupAPI(WirecloudTestCase):
 
     fixtures = ('selenium_test_data', 'user_with_workspaces')
     tags = ('rest_api', 'fiware-ut-11')
 
-    @classmethod
-    def setUpClass(cls):
-        super(ApplicationMashupAPI, cls).setUpClass()
+    def setUp(self):
+        super(ApplicationMashupAPI, self).setUp()
 
-        cls.client = Client()
-        cls._original_download_function = staticmethod(downloader.download_http_content)
-        downloader.download_http_content = LocalDownloader({
-            'http': {
-                'localhost:8001': os.path.join(os.path.dirname(wirecloud.commons.__file__), 'test-data', 'src'),
-            },
-        })
-
-    @classmethod
-    def tearDownClass(cls):
-
-        downloader.download_http_content = cls._original_download_function
+        self.client = Client()
 
     def test_features(self):
 
@@ -72,12 +228,10 @@ class ApplicationMashupAPI(WirecloudTestCase):
         response_data = json.loads(response.content)
         self.assertTrue(isinstance(response_data, dict))
 
-    def test_workspace_collection_read_requires_authentication(self):
+    def test_workspace_collection_get_requires_authentication(self):
 
         url = reverse('wirecloud.workspace_collection')
-
-        response = self.client.get(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
+        check_get_requires_authentication(self, url)
 
     def test_workspace_collection_read(self):
 
@@ -99,25 +253,12 @@ class ApplicationMashupAPI(WirecloudTestCase):
         data = {
             'name': 'test',
         }
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
 
-        # Error response should be a dict
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        def test_workspace_not_created(self):
+            # Workspace should be not created
+            self.assertFalse(Workspace.objects.filter(name='test').exists())
 
-        # Workspace should be not created
-        self.assertFalse(Workspace.objects.filter(name='test').exists())
-
-        # Check using Accept: text/html
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='text/html')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
-
-        # Content type of the response should be text/html
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
+        check_post_requires_authentication(self, url, json.dumps(data), test_workspace_not_created)
 
     def test_workspace_collection_post(self):
 
@@ -156,6 +297,29 @@ class ApplicationMashupAPI(WirecloudTestCase):
         }
         response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
         self.assertEqual(response.status_code, 409)
+
+    def test_workspace_collection_post_allow_renaming(self):
+
+        url = reverse('wirecloud.workspace_collection')
+
+        # Authenticate
+        self.client.login(username='user_with_workspaces', password='admin')
+
+        # Make the request
+        data = {
+            'allow_renaming': True,
+            'name': 'ExistingWorkspace'
+        }
+        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 201)
+        response_data = json.loads(response.content)
+        self.assertTrue(isinstance(response_data, dict))
+        self.assertTrue('id' in response_data)
+        self.assertNotEqual(response_data['name'], 'ExistingWorkspace')
+        self.assertTrue(isinstance(response_data['wiring'], dict))
+
+        # Workspace should be created
+        self.assertTrue(Workspace.objects.filter(creator=4, name=response_data['name']).exists())
 
     def test_workspace_collection_post_creation_from_nonexistent_mashup(self):
 
@@ -263,7 +427,9 @@ class ApplicationMashupAPI(WirecloudTestCase):
         self.assertTrue('description' in response_data)
         self.assertTrue('details' in response_data)
         self.assertTrue('missingDependencies' in response_data['details'])
-        self.assertEqual(set(response_data['details']['missingDependencies']), set((
+        missingDependencies = set(response_data['details']['missingDependencies'])
+        self.assertEqual(len(response_data['details']['missingDependencies']), len(missingDependencies))
+        self.assertEqual(missingDependencies, set((
             'Wirecloud/nonavailable-operator/1.0',
             'Wirecloud/nonavailable-widget/1.0',
             'Wirecloud/TestOperator/1.0',
@@ -321,39 +487,17 @@ class ApplicationMashupAPI(WirecloudTestCase):
     def test_workspace_collection_post_bad_request_syntax(self):
 
         url = reverse('wirecloud.workspace_collection')
+        check_post_bad_request_syntax(self, url)
 
-        # Authenticate
-        self.client.login(username='normuser', password='admin')
-
-        # Test bad json syntax
-        response = self.client.post(url, 'bad syntax', content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 400)
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
-
-    def test_workspace_entry_read_requires_authentication(self):
+    def test_workspace_entry_get_requires_authentication(self):
 
         url = reverse('wirecloud.workspace_entry', kwargs={'workspace_id': 1})
+        check_get_requires_authentication(self, url)
 
-        response = self.client.get(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+    def test_workspace_entry_read_requires_permission(self):
 
-        # Error response should be a dict
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
-
-        # Workspace should be not deleted
-        self.assertTrue(Workspace.objects.filter(name='ExistingWorkspace').exists())
-
-        # Check using Accept: text/html
-        response = self.client.delete(url, HTTP_ACCEPT='text/html')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
-
-        # Content type of the response should be text/html
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
+        url = reverse('wirecloud.workspace_entry', kwargs={'workspace_id': 1})
+        check_get_requires_permission(self, url)
 
     def test_workspace_entry_read(self):
 
@@ -393,25 +537,16 @@ class ApplicationMashupAPI(WirecloudTestCase):
 
         url = reverse('wirecloud.workspace_entry', kwargs={'workspace_id': 1})
 
-        response = self.client.delete(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        def workspace_not_deleted(self):
+            # Workspace should be not deleted
+            self.assertTrue(Workspace.objects.filter(name='ExistingWorkspace').exists())
 
-        # Error response should be a dict
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        check_delete_requires_authentication(self, url, workspace_not_deleted)
 
-        # Workspace should be not deleted
-        self.assertTrue(Workspace.objects.filter(name='ExistingWorkspace').exists())
+    def test_workspace_entry_delete_requires_permission(self):
 
-        # Check using Accept: text/html
-        response = self.client.delete(url, HTTP_ACCEPT='text/html')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
-
-        # Content type of the response should be text/html
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
+        url = reverse('wirecloud.workspace_entry', kwargs={'workspace_id': 1})
+        check_delete_requires_permission(self, url)
 
     def test_workspace_entry_delete(self):
 
@@ -459,6 +594,15 @@ class ApplicationMashupAPI(WirecloudTestCase):
         # Content type of the response should be text/html
         self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
 
+    def test_workspace_wiring_entry_put_requires_permission(self):
+
+        url = reverse('wirecloud.workspace_wiring', kwargs={'workspace_id': 1})
+        data = {
+            'operators': [{'name': 'Operator1'}],
+            'connections': [],
+        }
+        check_put_requires_permission(self, url, json.dumps(data))
+
     def test_workspace_wiring_entry_put(self):
 
         url = reverse('wirecloud.workspace_wiring', kwargs={'workspace_id': 1})
@@ -483,15 +627,7 @@ class ApplicationMashupAPI(WirecloudTestCase):
     def test_workspace_wiring_entry_put_bad_request_syntax(self):
 
         url = reverse('wirecloud.workspace_wiring', kwargs={'workspace_id': 1})
-
-        # Authenticate
-        self.client.login(username='user_with_workspaces', password='admin')
-
-        # Test bad json syntax
-        response = self.client.put(url, 'bad syntax', content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 400)
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        check_put_bad_request_syntax(self, url)
 
     def test_tab_collection_post_requires_authentication(self):
 
@@ -500,25 +636,21 @@ class ApplicationMashupAPI(WirecloudTestCase):
         data = {
             'name': 'rest_api_test',
         }
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
 
-        # Error response should be a dict
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        def test_tab_not_created(self):
+            # Tab should be not created
+            self.assertFalse(Tab.objects.filter(name='rest_api_test').exists())
 
-        # Tab should be not created
-        self.assertFalse(Tab.objects.filter(name='rest_api_test').exists())
+        check_post_requires_authentication(self, url, json.dumps(data), test_tab_not_created)
 
-        # Check using Accept: text/html
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='text/html')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+    def test_tab_collection_post_requires_permission(self):
 
-        # Content type of the response should be text/html
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
+        url = reverse('wirecloud.tab_collection', kwargs={'workspace_id': 1})
+
+        data = {
+            'name': 'rest_api_test',
+        }
+        check_post_requires_permission(self, url, json.dumps(data))
 
     def test_tab_collection_post(self):
 
@@ -559,39 +691,90 @@ class ApplicationMashupAPI(WirecloudTestCase):
     def test_tab_collection_post_bad_request_syntax(self):
 
         url = reverse('wirecloud.tab_collection', kwargs={'workspace_id': 1})
+        check_post_bad_request_syntax(self, url)
+
+    def test_tab_entry_put_requires_authentication(self):
+
+        url = reverse('wirecloud.tab_entry', kwargs={'workspace_id': 1, 'tab_id': 1})
+        data = {
+            'name': 'new tab name'
+        }
+        check_put_requires_authentication(self, url, data)
+
+    def test_tab_entry_put_requires_permission(self):
+
+        url = reverse('wirecloud.tab_entry', kwargs={'workspace_id': 1, 'tab_id': 1})
+        data = {
+            'name': 'new tab name'
+        }
+        check_put_requires_permission(self, url, json.dumps(data))
+
+    def test_tab_entry_put(self):
+
+        url = reverse('wirecloud.tab_entry', kwargs={'workspace_id': 3, 'tab_id': 103})
 
         # Authenticate
         self.client.login(username='user_with_workspaces', password='admin')
 
-        # Test bad json syntax
-        response = self.client.post(url, 'bad syntax', content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 400)
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        # Make the request (rename tab)
+        data = {
+            'name': 'new tab name'
+        }
+        response = self.client.put(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 204)
+
+        # Tab should be renamed
+        tab2 = Tab.objects.get(pk=103)
+        self.assertEqual(tab2.name, 'new tab name')
+        self.assertFalse(tab2.visible)
+
+        # Mark second tab as the default tab
+        data = {
+            'visible': True
+        }
+        response = self.client.put(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 204)
+
+        # Tab should be marked as the default one
+        tab2 = Tab.objects.get(pk=103)
+        self.assertEqual(tab2.name, 'new tab name')
+        self.assertTrue(tab2.visible)
+        tab1 = Tab.objects.get(pk=102)
+        self.assertFalse(tab1.visible)
+
+        # Mark first tab as the default tab
+        url = reverse('wirecloud.tab_entry', kwargs={'workspace_id': 3, 'tab_id': 102})
+        data = {
+            'visible': 'true'
+        }
+        response = self.client.put(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 204)
+
+        # Tab should be marked as the default one
+        tab2 = Tab.objects.get(pk=103)
+        self.assertFalse(tab2.visible)
+        tab1 = Tab.objects.get(pk=102)
+        self.assertTrue(tab1.visible)
+
+    def test_tab_entry_put_bad_request_syntax(self):
+
+        url = reverse('wirecloud.tab_entry', kwargs={'workspace_id': 1, 'tab_id': 1})
+        check_put_bad_request_syntax(self, url)
 
     def test_tab_entry_delete_requires_authentication(self):
 
         url = reverse('wirecloud.tab_entry', kwargs={'workspace_id': 1, 'tab_id': 1})
 
-        response = self.client.delete(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        def tab_not_deleted(self):
+            # Tab should be not deleted
+            self.assertTrue(Tab.objects.filter(name='ExistingTab').exists())
 
-        # Error response should be a dict
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        check_delete_requires_authentication(self, url, tab_not_deleted)
 
-        # Tab should be not deleted
-        self.assertTrue(Tab.objects.filter(name='ExistingTab').exists())
+    def test_tab_entry_delete_requires_permission(self):
 
-        # Check using Accept: text/html
-        response = self.client.delete(url, HTTP_ACCEPT='text/html')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
-
-        # Content type of the response should be text/html
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'text/html')
+        url = reverse('wirecloud.tab_entry', kwargs={'workspace_id': 1, 'tab_id': 1})
+        check_delete_requires_permission(self, url)
 
     def test_tab_entry_delete(self):
 
@@ -607,6 +790,22 @@ class ApplicationMashupAPI(WirecloudTestCase):
         # Tab should be removed
         self.assertFalse(Tab.objects.filter(name='ExistingTab').exists())
 
+    def test_tab_entry_delete_read_only_widgets(self):
+
+        url = reverse('wirecloud.tab_entry', kwargs={'workspace_id': 3, 'tab_id': 103})
+
+        # Authenticate
+        self.client.login(username='user_with_workspaces', password='admin')
+
+        # Make the request
+        response = self.client.delete(url, HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 403)
+        response_data = json.loads(response.content)
+        self.assertTrue(isinstance(response_data, dict))
+
+        # Tab should not be removed
+        self.assertTrue(Tab.objects.filter(pk=103).exists())
+
     def test_iwidget_collection_post_requires_authentication(self):
 
         url = reverse('wirecloud.iwidget_collection', kwargs={'workspace_id': 1, 'tab_id': 1})
@@ -615,12 +814,15 @@ class ApplicationMashupAPI(WirecloudTestCase):
         data = {
             'widget': 'Wirecloud/Test/1.0',
         }
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        check_post_requires_authentication(self, url, json.dumps(data))
 
-        # IWidget should be not created
-        # TODO
+    def test_iwidget_collection_post_requires_permission(self):
+
+        url = reverse('wirecloud.iwidget_collection', kwargs={'workspace_id': 1, 'tab_id': 1})
+        data = {
+            'widget': 'Wirecloud/Test/1.0',
+        }
+        check_post_requires_permission(self, url, json.dumps(data))
 
     def test_iwidget_collection_post(self):
 
@@ -638,6 +840,11 @@ class ApplicationMashupAPI(WirecloudTestCase):
         response_data = json.loads(response.content)
         self.assertTrue(isinstance(response_data, dict))
 
+    def test_iwidget_collection_post_bad_request_syntax(self):
+
+        url = reverse('wirecloud.iwidget_collection', kwargs={'workspace_id': 1, 'tab_id': 1})
+        check_post_bad_request_syntax(self, url)
+
     def test_iwidget_entry_post_requires_authentication(self):
 
         url = reverse('wirecloud.iwidget_entry', kwargs={'workspace_id': 2, 'tab_id': 101, 'iwidget_id': 2})
@@ -646,13 +853,21 @@ class ApplicationMashupAPI(WirecloudTestCase):
         data = {
             'name': 'New Name',
         }
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
 
-        # IWidget should be not updated
-        iwidget = IWidget.objects.get(pk=2)
-        self.assertNotEqual(iwidget.name, 'New Name')
+        def iwidget_not_created(self):
+            # IWidget should be not updated
+            iwidget = IWidget.objects.get(pk=2)
+            self.assertNotEqual(iwidget.name, 'New Name')
+
+        check_post_requires_authentication(self, url, json.dumps(data), iwidget_not_created)
+
+    def test_iwidget_entry_post_requires_permission(self):
+
+        url = reverse('wirecloud.iwidget_entry', kwargs={'workspace_id': 2, 'tab_id': 101, 'iwidget_id': 2})
+        data = {
+            'name': 'New Name',
+        }
+        check_post_requires_permission(self, url, json.dumps(data))
 
     def test_iwidget_entry_post(self):
 
@@ -673,6 +888,11 @@ class ApplicationMashupAPI(WirecloudTestCase):
         iwidget = IWidget.objects.get(pk=2)
         self.assertEqual(iwidget.name, 'New Name')
 
+    def test_iwidget_entry_post_bad_request_syntax(self):
+
+        url = reverse('wirecloud.iwidget_entry', kwargs={'workspace_id': 2, 'tab_id': 101, 'iwidget_id': 2})
+        check_post_bad_request_syntax(self, url)
+
     def test_iwidget_preferences_entry_post_requires_authentication(self):
 
         url = reverse('wirecloud.iwidget_preferences', kwargs={'workspace_id': 2, 'tab_id': 101, 'iwidget_id': 2})
@@ -681,17 +901,25 @@ class ApplicationMashupAPI(WirecloudTestCase):
         data = {
             'text': 'new value',
         }
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
 
-        # IWidget preferences should not be updated
-        variable_value = VariableValue.objects.get(
-            user__username='user_with_workspaces',
-            variable__vardef__name='text',
-            variable__iwidget__id=2
-        )
-        self.assertNotEqual(variable_value.value, 'new value')
+        def iwidget_preference_not_created(self):
+            # IWidget preferences should not be updated
+            variable_value = VariableValue.objects.get(
+                user__username='user_with_workspaces',
+                variable__vardef__name='text',
+                variable__iwidget__id=2
+            )
+            self.assertNotEqual(variable_value.value, 'new value')
+
+        check_post_requires_authentication(self, url, json.dumps(data), iwidget_preference_not_created)
+
+    def test_iwidget_preferences_entry_post_requires_permission(self):
+
+        url = reverse('wirecloud.iwidget_preferences', kwargs={'workspace_id': 2, 'tab_id': 101, 'iwidget_id': 2})
+        data = {
+            'text': 'new value',
+        }
+        check_post_requires_permission(self, url, json.dumps(data))
 
     def test_iwidget_preferences_entry_post(self):
 
@@ -716,17 +944,25 @@ class ApplicationMashupAPI(WirecloudTestCase):
         )
         self.assertEqual(variable_value.value, 'new value')
 
+    def test_iwidget_preferences_entry_post_bad_request_syntax(self):
+
+        url = reverse('wirecloud.iwidget_preferences', kwargs={'workspace_id': 2, 'tab_id': 101, 'iwidget_id': 2})
+        check_post_bad_request_syntax(self, url)
+
     def test_iwidget_entry_delete_requires_authentication(self):
 
         url = reverse('wirecloud.iwidget_entry', kwargs={'workspace_id': 2, 'tab_id': 101, 'iwidget_id': 2})
 
-        # Make the request
-        response = self.client.delete(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        def iwidget_not_deleted(self):
+            # IWidget should not be deleted
+            IWidget.objects.get(pk=2)
 
-        # IWidget should not be deleted
-        IWidget.objects.get(pk=2)
+        check_delete_requires_authentication(self, url, iwidget_not_deleted)
+
+    def test_iwidget_entry_delete_requires_permission(self):
+
+        url = reverse('wirecloud.iwidget_entry', kwargs={'workspace_id': 2, 'tab_id': 101, 'iwidget_id': 2})
+        check_delete_requires_permission(self, url)
 
     def test_iwidget_entry_delete(self):
 
@@ -743,6 +979,21 @@ class ApplicationMashupAPI(WirecloudTestCase):
         # IWidget should be deleted
         self.assertRaises(IWidget.DoesNotExist, IWidget.objects.get, pk=2)
 
+    def test_iwidget_entry_delete_read_only(self):
+
+        url = reverse('wirecloud.iwidget_entry', kwargs={'workspace_id': 3, 'tab_id': 103, 'iwidget_id': 4})
+
+        # Authenticate
+        self.client.login(username='user_with_workspaces', password='admin')
+
+        # Make the request
+        response = self.client.delete(url, HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 403)
+        response_data = json.loads(response.content)
+        self.assertTrue(isinstance(response_data, dict))
+
+        # IWidget should not be deleted
+        IWidget.objects.get(pk=4)
 
 class ResourceManagementAPI(WirecloudTestCase):
 
@@ -754,12 +1005,6 @@ class ResourceManagementAPI(WirecloudTestCase):
         super(ResourceManagementAPI, cls).setUpClass()
 
         cls.client = Client()
-        cls._original_download_function = staticmethod(downloader.download_http_content)
-        downloader.download_http_content = LocalDownloader({
-            'http': {
-                'localhost:8001': os.path.join(os.path.dirname(wirecloud.commons.__file__), 'test-data', 'src'),
-            },
-        })
 
         # catalogue deployer
         cls.old_catalogue_deployer = catalogue.wgt_deployer
@@ -774,8 +1019,6 @@ class ResourceManagementAPI(WirecloudTestCase):
     @classmethod
     def tearDownClass(cls):
 
-        downloader.download_http_content = cls._original_download_function
-
         # deployers
         catalogue.wgt_deployer = cls.old_catalogue_deployer
         shutil.rmtree(cls.catalogue_tmp_dir, ignore_errors=True)
@@ -784,12 +1027,10 @@ class ResourceManagementAPI(WirecloudTestCase):
 
         super(ResourceManagementAPI, cls).tearDownClass()
 
-    def test_resource_collection_read_requires_authentication(self):
+    def test_resource_collection_get_requires_authentication(self):
 
         url = reverse('wirecloud_showcase.resource_collection')
-
-        response = self.client.get(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
+        check_get_requires_authentication(self, url)
 
     def test_resource_collection_read(self):
 
@@ -814,11 +1055,9 @@ class ResourceManagementAPI(WirecloudTestCase):
     def test_resource_collection_post_requires_authentication(self):
 
         url = reverse('wirecloud_showcase.resource_collection')
+        check_post_requires_authentication(self, url, '{}')
 
-        response = self.client.post(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-
-    def test_resource_collection_post(self):
+    def test_resource_collection_post_widget(self):
 
         url = reverse('wirecloud_showcase.resource_collection')
 
@@ -833,10 +1072,94 @@ class ResourceManagementAPI(WirecloudTestCase):
         response_data = json.loads(response.content)
         self.assertTrue(isinstance(response_data, dict))
         self.assertIn('type', response_data)
-        self.assertIn(response_data['type'], CatalogueResource.RESOURCE_TYPES)
+        self.assertEqual(response_data['type'], 'widget')
         self.assertIn('vendor', response_data)
+        self.assertEqual(response_data['vendor'], 'Wirecloud')
         self.assertIn('name', response_data)
+        self.assertEqual(response_data['name'], 'Test_Selenium')
         self.assertIn('version', response_data)
+        self.assertEqual(response_data['version'], '1.0')
+
+    def test_resource_collection_post_widget_invalid_html_encoding(self):
+
+        url = reverse('wirecloud_showcase.resource_collection')
+
+        # Authenticate
+        self.client.login(username='admin', password='admin')
+
+        # Make the request
+        with open(os.path.join(self.shared_test_data_dir, 'Wirecloud_Test_Invalid_HTML_Encoding_1.0.wgt'), 'rb') as f:
+            response = self.client.post(url, data={'file': f}, HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 400)
+        response_data = json.loads(response.content)
+        self.assertTrue(isinstance(response_data, dict))
+
+    def test_resource_collection_post_operator(self):
+
+        url = reverse('wirecloud_showcase.resource_collection')
+
+        # Authenticate
+        self.client.login(username='admin', password='admin')
+
+        # Make the request
+        with open(os.path.join(self.shared_test_data_dir, 'Wirecloud_TestOperatorSelenium_1.0.zip'), 'rb') as f:
+            response = self.client.post(url, data={'file': f}, HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 201)
+
+        response_data = json.loads(response.content)
+        self.assertIn('type', response_data)
+        self.assertEqual(response_data['type'], 'operator')
+        self.assertIn('vendor', response_data)
+        self.assertEqual(response_data['vendor'], 'Wirecloud')
+        self.assertIn('name', response_data)
+        self.assertEqual(response_data['name'], 'TestOperatorSelenium')
+        self.assertIn('version', response_data)
+        self.assertEqual(response_data['version'], '1.0')
+
+    def test_resource_collection_post_mashup(self):
+
+        url = reverse('wirecloud_showcase.resource_collection')
+
+        # Authenticate
+        self.client.login(username='normuser', password='admin')
+
+        # Make the request
+        with open(os.path.join(self.shared_test_data_dir, 'Wirecloud_TestMashup2_1.0.zip'), 'rb') as f:
+            response = self.client.post(url, data={'file': f}, HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 201)
+
+        response_data = json.loads(response.content)
+        self.assertIn('type', response_data)
+        self.assertEqual(response_data['type'], 'mashup')
+        self.assertIn('vendor', response_data)
+        self.assertEqual(response_data['vendor'], 'Wirecloud')
+        self.assertIn('name', response_data)
+        self.assertEqual(response_data['name'], 'TestMashup2')
+        self.assertIn('version', response_data)
+        self.assertEqual(response_data['version'], '1.0')
+
+    def test_resource_collection_post_missing_dependencies(self):
+
+        # Make Test and TestOperator unavailable to normuser
+        test_widget = CatalogueResource.objects.get(short_name='Test')
+        test_widget.public = False
+        test_widget.users.clear()
+        test_widget.save()
+
+        test_operator = CatalogueResource.objects.get(short_name='TestOperator')
+        test_operator.public = False
+        test_operator.users.clear()
+        test_operator.save()
+
+        url = reverse('wirecloud_showcase.resource_collection')
+
+        # Authenticate
+        self.client.login(username='normuser', password='admin')
+
+        # Make the request
+        with open(os.path.join(self.shared_test_data_dir, 'Wirecloud_TestMashup2_1.0.zip'), 'rb') as f:
+            response = self.client.post(url, data={'file': f}, HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 201)
 
     def test_resource_collection_post_using_octet_stream(self):
 
@@ -858,6 +1181,21 @@ class ResourceManagementAPI(WirecloudTestCase):
         self.assertIn('name', response_data)
         self.assertIn('version', response_data)
 
+    def test_resource_collection_post_using_bad_packaged_resouce_from_uri(self):
+
+        url = reverse('wirecloud_showcase.resource_collection')
+
+        # Authenticate
+        self.client.login(username='admin', password='admin')
+
+        # Make the request
+        data = {
+            'packaged': True,
+            'template_uri': 'http://localhost:8001/test-mashup.rdf'
+        }
+        response = self.client.post(url, json.dumps(data), content_type="application/json", HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 400)
+
     def test_resource_collection_post_using_octet_stream_error(self):
 
         url = reverse('wirecloud_showcase.resource_collection')
@@ -869,11 +1207,10 @@ class ResourceManagementAPI(WirecloudTestCase):
         response = self.client.post(url, 'invalid content', content_type="application/octet-stream", HTTP_ACCEPT='application/json')
         self.assertEqual(response.status_code, 400)
 
-    def test_resource_entry_read_requires_authentication(self):
+    def test_resource_entry_get_requires_authentication(self):
 
         url = reverse('wirecloud_showcase.resource_entry', kwargs={'vendor': 'Wirecloud', 'name': 'Test', 'version': '1.0'})
-        response = self.client.get(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
+        check_get_requires_authentication(self, url)
 
     def test_resource_entry_read(self):
 
@@ -899,13 +1236,22 @@ class ResourceManagementAPI(WirecloudTestCase):
         # Make the request
         response = self.client.get(url, HTTP_ACCEPT='application/json')
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/x-widget+mashable-application-component')
+
+    def test_resource_entry_read_requires_permission(self):
+
+        resource_id = (
+            'Wirecloud',
+            'TestOperator',
+            '1.0',
+        )
+        url = reverse('wirecloud_showcase.resource_entry', args=resource_id)
+        check_get_requires_permission(self, url)
 
     def test_resource_entry_delete_requires_authentication(self):
 
         url = reverse('wirecloud_showcase.resource_entry', kwargs={'vendor': 'Wirecloud', 'name': 'Test', 'version': '1.0'})
-
-        response = self.client.delete(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
+        check_delete_requires_authentication(self, url)
 
     def test_resource_entry_delete(self):
 
@@ -927,12 +1273,6 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
         super(ExtraApplicationMashupAPI, cls).setUpClass()
 
         cls.client = Client()
-        cls._original_download_function = staticmethod(downloader.download_http_content)
-        downloader.download_http_content = LocalDownloader({
-            'http': {
-                'localhost:8001': os.path.join(os.path.dirname(wirecloud.commons.__file__), 'test-data', 'src'),
-            },
-        })
 
         # catalogue deployer
         cls.old_catalogue_deployer = catalogue.wgt_deployer
@@ -947,8 +1287,6 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
     @classmethod
     def tearDownClass(cls):
 
-        downloader.download_http_content = cls._original_download_function
-
         # deployers
         catalogue.wgt_deployer = cls.old_catalogue_deployer
         shutil.rmtree(cls.catalogue_tmp_dir, ignore_errors=True)
@@ -957,13 +1295,10 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
 
         super(ExtraApplicationMashupAPI, cls).tearDownClass()
 
-    def test_iwidget_collection_read_requires_authentication(self):
+    def test_iwidget_collection_get_requires_authentication(self):
 
         url = reverse('wirecloud.iwidget_collection', kwargs={'workspace_id': 2, 'tab_id': 101})
-
-        response = self.client.get(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        check_get_requires_authentication(self, url)
 
     def test_iwidget_collection_read(self):
 
@@ -977,13 +1312,10 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
         response_data = json.loads(response.content)
         self.assertTrue(isinstance(response_data, list))
 
-    def test_iwidget_entry_read_requires_authentication(self):
+    def test_iwidget_entry_get_requires_authentication(self):
 
         url = reverse('wirecloud.iwidget_entry', kwargs={'workspace_id': 2, 'tab_id': 101, 'iwidget_id': 2})
-
-        response = self.client.get(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        check_get_requires_authentication(self, url)
 
     def test_iwidget_entry_read(self):
 
@@ -997,13 +1329,110 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
         response_data = json.loads(response.content)
         self.assertTrue(isinstance(response_data, dict))
 
-    def test_platform_preference_collection_read_requires_authentication(self):
+    def test_resource_description_entry_get_requires_authentication(self):
 
-        url = reverse('wirecloud.platform_preferences')
+        url = reverse('wirecloud_showcase.resource_description_entry', kwargs={'vendor': 'Wirecloud', 'name': 'Test', 'version': '1.0'})
+        check_get_requires_authentication(self, url)
+
+    def test_resource_description_entry_read(self):
+
+        resource_id = [
+            'Wirecloud',
+            'Test',
+            '1.0'
+        ]
+        url = reverse('wirecloud_showcase.resource_description_entry', args=resource_id)
+
+        # Authenticate
+        self.client.login(username='admin', password='admin')
+
+        # Make the request
+        response = self.client.get(url, HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
+
+    def test_resource_description_entry_read_requires_permission(self):
+
+        resource_id = (
+            'Wirecloud',
+            'TestOperator',
+            '1.0',
+        )
+        url = reverse('wirecloud_showcase.resource_description_entry', args=resource_id)
+        check_get_requires_permission(self, url)
+
+    def test_market_collection_get_requires_authentication(self):
+
+        url = reverse('wirecloud.market_collection')
+        check_get_requires_authentication(self, url)
+
+    def test_market_collection_get(self):
+
+        url = reverse('wirecloud.market_collection')
+
+        # Authenticate
+        self.client.login(username='user_with_markets', password='admin')
 
         response = self.client.get(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        self.assertEqual(response.status_code, 200)
+        response_data = json.loads(response.content)
+        self.assertTrue(isinstance(response_data, dict))
+
+    def test_market_collection_post_requires_authentication(self):
+
+        url = reverse('wirecloud.market_collection')
+        data = {
+            'name': 'new_market',
+            'options': {
+                'type': 'wirecloud',
+                'url': 'http://example.com'
+            }
+        }
+        check_post_requires_authentication(self, url, json.dumps(data))
+
+    def test_market_collection_post(self):
+
+        url = reverse('wirecloud.market_collection')
+
+        # Authenticate
+        self.client.login(username='user_with_markets', password='admin')
+
+        # Make request
+        data = {
+            'name': 'new_market',
+            'options': {
+                'type': 'wirecloud',
+                'url': 'http://example.com'
+            }
+        }
+        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 201)
+
+    def test_market_entry_delete_requires_authentication(self):
+
+        url = reverse('wirecloud.market_entry', kwargs={'user': 'user_with_markets', 'market': 'deleteme'})
+        check_delete_requires_authentication(self, url)
+
+    def test_market_entry_delete(self):
+
+        url = reverse('wirecloud.market_entry', kwargs={'user': 'user_with_markets', 'market': 'deleteme'})
+
+        # Authenticate
+        self.client.login(username='user_with_markets', password='admin')
+
+        # Make the request
+        response = self.client.delete(url, HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 204)
+
+    def test_market_collection_post_bad_request_syntax(self):
+
+        url = reverse('wirecloud.market_collection')
+        check_post_bad_request_syntax(self, url)
+
+    def test_platform_preference_collection_get_requires_authentication(self):
+
+        url = reverse('wirecloud.platform_preferences')
+        check_get_requires_authentication(self, url)
 
     def test_platform_preference_collection_read(self):
 
@@ -1025,9 +1454,7 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
             'pref1': {'value': '5'},
             'pref2': {'value': 'false'}
         }
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        check_post_requires_authentication(self, url, json.dumps(data))
 
     def test_platform_preference_collection_post(self):
 
@@ -1044,6 +1471,11 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
         self.assertEqual(response.status_code, 204)
         self.assertEqual(response.content, '')
 
+    def test_platform_preference_collection_post_bad_request_syntax(self):
+
+        url = reverse('wirecloud.platform_preferences')
+        check_post_bad_request_syntax(self, url)
+
     def test_workspace_entry_post_requires_authentication(self):
 
         url = reverse('wirecloud.workspace_entry', kwargs={'workspace_id': 2})
@@ -1052,18 +1484,29 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
             'name': 'RenamedWorkspace',
             'active': True,
         }
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
 
-        # Error response should be a dict
-        self.assertEqual(response['Content-Type'].split(';', 1)[0], 'application/json')
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        def workspace_not_changed(self):
+            user_workspace = UserWorkspace.objects.get(pk=2)
+            self.assertEqual(user_workspace.workspace.name, 'Workspace')
+            self.assertEqual(user_workspace.active, True)
 
-        user_workspace = UserWorkspace.objects.get(pk=2)
-        self.assertEqual(user_workspace.workspace.name, 'Workspace')
-        self.assertEqual(user_workspace.active, True)
+        check_post_requires_authentication(self, url, json.dumps(data), workspace_not_changed)
+
+    def test_workspace_entry_post_requires_permission(self):
+
+        url = reverse('wirecloud.workspace_entry', kwargs={'workspace_id': 2})
+
+        data = {
+            'name': 'RenamedWorkspace',
+            'active': True,
+        }
+
+        def workspace_not_changed(self):
+            user_workspace = UserWorkspace.objects.get(pk=2)
+            self.assertEqual(user_workspace.workspace.name, 'Workspace')
+            self.assertEqual(user_workspace.active, True)
+
+        check_post_requires_permission(self, url, json.dumps(data), workspace_not_changed)
 
     def test_workspace_entry_post(self):
 
@@ -1097,15 +1540,7 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
     def test_workspace_entry_post_bad_request_syntax(self):
 
         url = reverse('wirecloud.workspace_entry', kwargs={'workspace_id': 2})
-
-        # Authenticate
-        self.client.login(username='user_with_workspaces', password='admin')
-
-        # Test bad json syntax
-        response = self.client.post(url, 'bad syntax', content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 400)
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        check_post_bad_request_syntax(self, url)
 
     def test_workspace_variable_collection_post_requires_authentication(self):
 
@@ -1114,9 +1549,7 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
         data = [
             {'id': 2, 'value': 'new_value'}
         ]
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        check_post_requires_authentication(self, url, json.dumps(data))
 
     def test_workspace_variable_collection_post(self):
 
@@ -1146,15 +1579,7 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
     def test_workspace_variable_collection_post_bad_request_syntax(self):
 
         url = reverse('wirecloud.variable_collection', kwargs={'workspace_id': 2})
-
-        # Authenticate
-        self.client.login(username='user_with_workspaces', password='admin')
-
-        # Test bad json syntax
-        response = self.client.post(url, 'bad syntax', content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 400)
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        check_post_bad_request_syntax(self, url)
 
     def test_workspace_merge_service_post_requires_authentication(self):
 
@@ -1163,9 +1588,7 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
         data = [
             {'id': 2, 'value': 'new_value'}
         ]
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        check_post_requires_authentication(self, url, json.dumps(data))
 
     def test_workspace_merge_service_post(self):
 
@@ -1236,23 +1659,17 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
     def test_workspace_merge_service_post_bad_request_syntax(self):
 
         url = reverse('wirecloud.workspace_merge', kwargs={'to_ws_id': 2})
+        check_post_bad_request_syntax(self, url)
 
-        # Authenticate
-        self.client.login(username='user_with_workspaces', password='admin')
-
-        # Test bad json syntax
-        response = self.client.post(url, 'bad syntax', content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 400)
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
-
-    def test_workspace_preference_collection_read_requires_authentication(self):
+    def test_workspace_preference_collection_get_requires_authentication(self):
 
         url = reverse('wirecloud.workspace_preferences', kwargs={'workspace_id': 2})
+        check_get_requires_authentication(self, url)
 
-        response = self.client.get(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+    def test_workspace_preference_collection_read_requires_permission(self):
+
+        url = reverse('wirecloud.workspace_preferences', kwargs={'workspace_id': 2})
+        check_get_requires_permission(self, url)
 
     def test_workspace_preference_collection_read(self):
 
@@ -1274,9 +1691,16 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
             'pref1': {'inherit': 'false', 'value': '5'},
             'pref2': {'inherit': 'true', 'value': 'false'}
         }
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        check_post_requires_authentication(self, url, json.dumps(data))
+
+    def test_workspace_preference_collection_post_requires_permission(self):
+
+        url = reverse('wirecloud.workspace_preferences', kwargs={'workspace_id': 2})
+        data = {
+            'pref1': {'inherit': 'false', 'value': '5'},
+            'pref2': {'inherit': 'true', 'value': 'false'}
+        }
+        check_post_requires_permission(self, url, json.dumps(data))
 
     def test_workspace_preference_collection_post(self):
 
@@ -1293,13 +1717,20 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
         self.assertEqual(response.status_code, 204)
         self.assertEqual(response.content, '')
 
-    def test_tab_preference_collection_read_requires_authentication(self):
+    def test_workspace_preference_collection_post_bad_request_syntax(self):
+
+        url = reverse('wirecloud.workspace_preferences', kwargs={'workspace_id': 2})
+        check_post_bad_request_syntax(self, url)
+
+    def test_tab_preference_collection_get_requires_authentication(self):
 
         url = reverse('wirecloud.tab_preferences', kwargs={'workspace_id': 2, 'tab_id': 101})
+        check_get_requires_authentication(self, url)
 
-        response = self.client.get(url, HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+    def test_tab_preference_collection_read_requires_permission(self):
+
+        url = reverse('wirecloud.tab_preferences', kwargs={'workspace_id': 2, 'tab_id': 101})
+        check_get_requires_permission(self, url)
 
     def test_tab_preference_collection_read(self):
 
@@ -1321,9 +1752,16 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
             'pref1': {'inherit': 'false', 'value': '5'},
             'pref2': {'inherit': 'true', 'value': 'false'}
         }
-        response = self.client.post(url, json.dumps(data), content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 401)
-        self.assertTrue('WWW-Authenticate' in response)
+        check_post_requires_authentication(self, url, json.dumps(data))
+
+    def test_tab_preference_collection_post_requires_permission(self):
+
+        url = reverse('wirecloud.tab_preferences', kwargs={'workspace_id': 2, 'tab_id': 101})
+        data = {
+            'pref1': '5',
+            'pref2': 'true',
+        }
+        check_post_requires_permission(self, url, json.dumps(data))
 
     def test_tab_preference_collection_post(self):
 
@@ -1401,12 +1839,4 @@ class ExtraApplicationMashupAPI(WirecloudTestCase):
     def test_workspace_publish_bad_request_syntax(self):
 
         url = reverse('wirecloud.workspace_publish', kwargs={'workspace_id': 2})
-
-        # Authenticate
-        self.client.login(username='user_with_workspaces', password='admin')
-
-        # Test bad json syntax
-        response = self.client.post(url, 'bad syntax', content_type='application/json', HTTP_ACCEPT='application/json')
-        self.assertEqual(response.status_code, 400)
-        response_data = json.loads(response.content)
-        self.assertTrue(isinstance(response_data, dict))
+        check_post_bad_request_syntax(self, url)

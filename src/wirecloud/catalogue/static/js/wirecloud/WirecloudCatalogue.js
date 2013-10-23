@@ -42,7 +42,7 @@
             for (i = 0; i < raw_data.resources.length; i += 1) {
                 resource = new CatalogueResource(raw_data.resources[i]);
                 resources.push(resource);
-                key = resource.getVendor() + '/' + resource.getName();
+                key = resource.vendor + '/' + resource.name;
                 if (key in preferred_versions) {
                     resource.changeVersion(preferred_versions[key]);
                 }
@@ -91,7 +91,7 @@
         }
 
         this.view_all_template = new Template(options.url + 'catalogue/resources/#{starting_page}/#{resources_per_page}');
-        this.simple_search_template = new Template(options.url + 'catalogue/search/simple_or/#{starting_page}/#{resources_per_page}');
+        this.simple_search_template = new Template(options.url + 'catalogue/search/and/#{starting_page}/#{resources_per_page}');
 
         Object.defineProperty(this, 'RESOURCE_ENTRY', {
             value: new Template(options.url + 'catalogue/resource/#{vendor}/#{name}/#{version}')
@@ -228,9 +228,9 @@
         var url, context;
 
         url = this.RESOURCE_ENTRY.evaluate({
-            vendor: resource.getVendor(),
-            name: resource.getName(),
-            version: resource.getVersion().text
+            vendor: resource.vendor,
+            name: resource.name,
+            version: resource.version.text
         });
 
         context = {

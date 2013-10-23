@@ -32,14 +32,13 @@
 import json
 import random
 import re
-from urlparse import urljoin
 
 from django.core.cache import cache
 from django.utils.translation import ugettext as _
 
 from wirecloud.commons.utils.cache import CacheableData
-from wirecloud.commons.utils.http import get_absolute_reverse_url
-from wirecloud.platform.models import IWidget, PublishedWorkspace, Tab, UserPrefOption, UserWorkspace, Variable, VariableDef, VariableValue
+from wirecloud.commons.utils.encoding import LazyEncoder
+from wirecloud.platform.models import IWidget, PublishedWorkspace, Tab, UserWorkspace, Variable, VariableValue
 from wirecloud.platform.context.utils import get_workspace_context, get_context_values
 from wirecloud.platform.preferences.views import get_workspace_preference_values, get_tab_preference_values
 from wirecloud.platform.workspace.utils import createTab, decrypt_value, encrypt_value
@@ -96,16 +95,16 @@ def _populate_variables_values_cache(workspace, user, key, forced_values=None):
             if var_value.variable.vardef.secure:
                 entry['value'] = encrypt_value(entry['value'])
 
-            if 'hidden' in fv_entry:
-                entry['hidden'] = fv_entry['hidden']
+            entry['readonly'] = True
+            entry['hidden'] = fv_entry.get('hidden', False)
 
-            entry['forced'] = True
         else:
-            if not var_value.variable.vardef.secure:
-                entry['value'] = var_value.get_variable_value()
-            else:
-                entry['value'] = var_value.value
+            entry['value'] = var_value.value
 
+            entry['readonly'] = False
+            entry['hidden'] = False
+
+        entry['type'] = var_value.variable.vardef.type
         entry['secure'] = var_value.variable.vardef.secure
 
         values_by_varname[variwidget][varname] = entry
@@ -157,9 +156,14 @@ def get_variable_value_from_varname(user, iwidget, var_name):
 
     entry = values['by_varname'][iwidget_id][var_name]
     if entry['secure'] == True:
-        return decrypt_value(entry['value'])
+        value = decrypt_value(entry['value'])
     else:
-        return entry['value']
+        value = entry['value']
+
+    if entry['type'] == 'B':
+        value = value.lower() == 'true'
+
+    return value
 
 
 def _invalidate_cached_variable_values(workspace, user=None):
@@ -233,91 +237,20 @@ class VariableValueCacheManager():
             data_ret['value'] = ''
             data_ret['secure'] = True
         else:
-            data_ret['value'] = entry['value']
+            value = entry['value']
 
-        if 'forced' in entry and entry['forced'] == True:
-            data_ret['readOnly'] = True
-            if 'hidden' in entry:
-                data_ret['hidden'] = entry['hidden']
+            if entry['type'] == 'B':
+                value = value.lower() == 'true'
+
+            data_ret['value'] = value
+
+        data_ret['readonly'] = entry['readonly']
+        data_ret['hidden'] = entry['hidden']
 
         return data_ret
 
     def invalidate(self):
         _invalidate_cached_variable_values(self.workspace, self.user)
-
-
-def get_widget_data(widget, request=None):
-
-    base_url = widget.xhtml.url
-    if not base_url.startswith(('http://', 'https://')):
-        base_url = get_absolute_reverse_url('wirecloud_showcase.media', args=(base_url.split('/', 4)), request=request)
-
-    twidget = widget.resource.get_translated_model()
-    data_ret = {}
-    data_variabledef = VariableDef.objects.filter(widget=widget)
-    data_vars = {}
-    for var in data_variabledef:
-        tvar = var.get_translated_model()
-        data_var = {}
-        data_var['aspect'] = var.aspect
-        data_var['name'] = var.name
-        data_var['type'] = var.type
-        data_var['label'] = tvar.label
-        data_var['description'] = tvar.description
-
-        if var.aspect == 'PREF':
-            data_var['default_value'] = tvar.default_value
-
-            if var.type == 'L':
-                options = UserPrefOption.objects.filter(variableDef=var)
-                value_options = []
-                for option in options:
-                    toption = option.get_translated_model()
-                    value_options.append([toption.value, toption.name])
-                data_var['value_options'] = value_options
-
-        elif var.aspect == 'SLOT':
-            data_var['action_label'] = tvar.action_label
-
-        if var.aspect in ('PREF', 'PROP', 'EVEN', 'SLOT'):
-
-            data_var['order'] = var.order
-
-        if var.aspect == 'PREF' or var.aspect == 'PROP':
-
-            data_var['secure'] = var.secure
-
-        elif var.aspect == 'GCTX' or var.aspect == 'ECTX':
-
-            data_var['concept'] = var.contextoption_set.all().values('concept')[0]['concept']
-
-        elif var.aspect == 'EVEN' or var.aspect == 'SLOT':
-
-            data_var['friend_code'] = var.friend_code
-
-        data_vars[var.name] = data_var
-
-    data_ret['vendor'] = widget.resource.vendor
-    data_ret['name'] = widget.resource.short_name
-    data_ret['version'] = widget.resource.version
-    data_ret['uri'] = widget.uri
-
-    if twidget.display_name and twidget.display_name != "":
-        data_ret['displayName'] = twidget.display_name
-    else:
-        data_ret['displayName'] = widget.resource.short_name
-    data_ret['description'] = twidget.description
-    data_ret['wikiURI'] = urljoin(base_url, twidget.wiki_page_uri)
-    data_ret['imageURI'] = urljoin(base_url, twidget.image_uri)
-    data_ret['iPhoneImageURI'] = urljoin(base_url, twidget.iphone_image_uri)
-    data_ret['mail'] = widget.resource.mail
-    data_ret['size'] = {}
-    data_ret['size']['width'] = widget.width
-    data_ret['size']['height'] = widget.height
-    data_ret['variables'] = data_vars
-    data_ret['code_content_type'] = widget.xhtml.content_type
-
-    return data_ret
 
 
 def get_workspace_data(workspace, user):
@@ -425,7 +358,7 @@ def _get_global_workspace_data(workspaceDAO, user):
     data_ret['empty_params'] = forced_values['empty_params']
     data_ret['extra_prefs'] = forced_values['extra_prefs']
     if len(forced_values['empty_params']) > 0:
-        return data_ret
+        return json.dumps(data_ret, cls=LazyEncoder)
 
     cache_manager = VariableValueCacheManager(workspaceDAO, user, forced_values)
 
@@ -441,7 +374,7 @@ def _get_global_workspace_data(workspaceDAO, user):
                 tabs[i].position = i
                 tabs[i].save()
     else:
-        tabs = [createTab(_('Tab'), user, workspaceDAO)]
+        tabs = [createTab(_('Tab'), workspaceDAO)]
 
     tabs_data = [get_tab_data(tab) for tab in tabs]
 
@@ -464,7 +397,7 @@ def _get_global_workspace_data(workspaceDAO, user):
     if len(last_published_workspace) > 0:
         data_ret["params"] = json.loads(last_published_workspace[0].params)
 
-    return data_ret
+    return json.dumps(data_ret, cls=LazyEncoder)
 
 
 def get_global_workspace_data(workspace, user):

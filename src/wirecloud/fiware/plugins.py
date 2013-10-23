@@ -17,7 +17,11 @@
 # You should have received a copy of the GNU General Public License
 # along with Wirecloud.  If not, see <http://www.gnu.org/licenses/>.
 
-from django.conf.urls.defaults import patterns, include
+try:
+    from django.conf.urls import patterns, include, url
+except ImportError:  # pragma: no cover
+    # for Django version less than 1.4
+    from django.conf.urls.defaults import patterns, url
 from wirecloud.commons.utils.template import TemplateParser
 from wirecloud.platform.markets.utils import MarketManager
 from wirecloud.platform.plugins import WirecloudPlugin, build_url_template
@@ -44,7 +48,14 @@ class FiWareMarketManager(MarketManager):
         adaptor = get_market_adaptor(None, self._options['name'])
         user_data = get_market_user_data(user, self._options['user'], self._options['name'])
         storeclient = adaptor.get_store(store)
-        return storeclient.download_resource(url, user_data[store + '/token'])
+
+        store_token_key = store + '/token'
+        if store_token_key in user_data:
+            token = user_data[store_token_key]
+        else:
+            token = user_data['idm_token']
+
+        return storeclient.download_resource(url, token)
 
     def publish(self, endpoint, wgt_file, user, request=None, template=None):
 
@@ -63,6 +74,13 @@ class FiWareMarketManager(MarketManager):
         adaptor = get_market_adaptor(self._options.get('user', None), self._options['name'])
         user_data = get_market_user_data(user, self._options['user'], self._options['name'])
         storeclient = adaptor.get_store(store)
+
+        store_token_key = store + '/token'
+        if store_token_key in user_data:
+            token = user_data[store_token_key]
+        else:
+            token = user_data['idm_token']
+
         storeclient.upload_resource(
             resource_info['display_name'],
             resource_info['version'],
@@ -70,7 +88,7 @@ class FiWareMarketManager(MarketManager):
             resource_info['description'],
             mimetypes[resource_info['type']],
             wgt_file.get_underlying_file(),
-            user_data[store + '/token']
+            token
         )
 
 
@@ -102,6 +120,7 @@ class FiWarePlugin(WirecloudPlugin):
                 "js/wirecloud/FiWare/FiWareCatalogue.js",
                 "js/wirecloud/FiWare/FiWareCatalogueResource.js",
                 "js/wirecloud/FiWare/ui/ResourceDetailsView.js",
+                "js/wirecloud/FiWare/ui/OfferingPainter.js",
                 "js/wirecloud/FiWare/ui/OfferingResourcesPainter.js",
                 "js/wirecloud/FiWare/FiWareResourceDetailsExtraInfo.js",
             )
@@ -118,6 +137,7 @@ class FiWarePlugin(WirecloudPlugin):
             return {
                 "fiware_marketplace_search_interface": "wirecloud/fiware/marketplace/search_interface.html",
                 "fiware_catalogue_resource_details_template": "wirecloud/fiware/marketplace/resource_details.html",
+                "fiware_resource": "wirecloud/fiware/marketplace/resource.html",
                 "fiware_resource_parts": "wirecloud/fiware/marketplace/resource_parts.html",
                 "fiware_main_details_template": "wirecloud/fiware/marketplace/main_resource_details.html",
                 "legal_template": "wirecloud/fiware/marketplace/legal/legal_template.html",

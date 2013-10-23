@@ -109,21 +109,22 @@ def create_widget_from_template(template, user, request=None, base=None):
             description=preference['description'],
             type=parser.typeText2typeCode(preference['type']),
             aspect='PREF',
-            friend_code=None,
+            readonly=preference['readonly'],
             label=preference['label'],
             default_value=preference['default_value'],
+            value=preference['value'],
             widget=widget,
             secure=preference['secure']
         )
         variable_definitions[vDef.name] = vDef
         user_options[vDef.name] = {}
-        for option in preference.get('options', ()):
+        for option_index, option in enumerate(preference.get('options', ())):
             upo = UserPrefOption.objects.create(
                 value=option['value'],
                 name=option['label'],
                 variableDef=vDef
             )
-            user_options[vDef.name][upo.name] = upo
+            user_options[vDef.name][option_index] = upo
 
         order += 1
 
@@ -135,7 +136,6 @@ def create_widget_from_template(template, user, request=None, base=None):
             description=prop['description'],
             type=parser.typeText2typeCode(prop['type']),
             aspect='PROP',
-            friend_code=None,
             label=prop['label'],
             default_value=prop['default_value'],
             widget=widget,
@@ -226,21 +226,13 @@ def create_widget_from_wgt(wgt, user, deploy_only=False):
 
 
 def get_or_add_widget_from_catalogue(vendor, name, version, user, request=None, assign_to_users=None):
-    resource_exists = CatalogueResource.objects.filter(vendor=vendor, short_name=name, version=version).filter(Q(public=True) | Q(users=user)).exists()
-    widget_exists = resource_exists and Widget.objects.filter(resource__vendor=vendor, resource__short_name=name, resource__version=version).exists()
-    if resource_exists and widget_exists:
-        resource = CatalogueResource.objects.get(vendor=vendor, short_name=name, version=version)
-    else:
-        from wirecloud.platform.localcatalogue.utils import install_resource_from_available_marketplaces
-        resource = install_resource_from_available_marketplaces(vendor, name, version, user)
+    resource_list = CatalogueResource.objects.filter(Q(vendor=vendor, version=version) & (Q(short_name=name) | Q(short_name__startswith=(name + '@'))))
 
-    if assign_to_users is None:
-        assign_to_users = (user,)
+    for resource in resource_list:
+        if resource.is_available_for(user):
+            return resource.widget
 
-    for user in assign_to_users:
-        resource.users.add(user)
-
-    return resource.widget
+    return None
 
 
 def xpath(tree, query, xmlns):
@@ -251,17 +243,21 @@ def xpath(tree, query, xmlns):
         return tree.xpath(query, namespaces={'xhtml': xmlns})
 
 
-def fix_widget_code(widget_code, base_url, content_type, request, use_platform_style, force_base=False):
+def fix_widget_code(widget_code, base_url, content_type, request, encoding, use_platform_style, force_base=False):
+
+    # This line is here for raising UnicodeDecodeError in case the widget_code is not encoded using the expecified encoding
+    widget_code.decode(encoding)
 
     if content_type == 'text/html':
-        parser = etree.HTMLParser()
-        xmltree = etree.parse(StringIO(str(widget_code)), parser)
-        serialization_method = 'html'
+        parser = etree.HTMLParser(encoding=encoding)
+        serialization_options = {'method': 'html'}
     elif content_type == 'application/xhtml+xml':
-        xmltree = etree.fromstring(widget_code).getroottree()
-        serialization_method = 'xml'
+        parser = etree.XMLParser(encoding=encoding)
+        serialization_options = {'method': 'xml', 'xml_declaration': False}
     else:
         return widget_code
+
+    xmltree = etree.parse(StringIO(widget_code), parser)
 
     prefix = xmltree.getroot().prefix
     xmlns = None
@@ -313,6 +309,7 @@ def fix_widget_code(widget_code, base_url, content_type, request, use_platform_s
         files.reverse()
         for file in files:
             head_element.insert(0, etree.Element('script', type="text/javascript", src=get_absolute_static_url(file, request=request)))
+        head_element.insert(0, etree.Element('script', type="text/javascript", src=get_absolute_static_url('js/WirecloudAPI/WirecloudAPICommon.js', request=request)))
         head_element.insert(0, etree.Element('script', type="text/javascript", src=get_absolute_static_url('js/WirecloudAPI/WirecloudAPI.js', request=request)))
 
         if use_platform_style:
@@ -326,4 +323,4 @@ def fix_widget_code(widget_code, base_url, content_type, request, use_platform_s
 
 
     # return modified code
-    return etree.tostring(xmltree, pretty_print=False, method=serialization_method)
+    return etree.tostring(xmltree, pretty_print=False, encoding=encoding, **serialization_options)

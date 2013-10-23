@@ -1,5 +1,5 @@
 /*
- *     (C) Copyright 2012-2013 Universidad Politécnica de Madrid
+ *     Copyright (c) 2012-2013 CoNWeT Lab., Universidad Politécnica de Madrid
  *
  *     This file is part of Wirecloud Platform.
  *
@@ -33,6 +33,11 @@
             type = 'select';
         }
 
+        // the value option is only used on the server side
+        if ('value' in options) {
+            delete options.value;
+        }
+
         Object.defineProperty(this, 'varName', {value: varName});
         Object.defineProperty(this, 'type', {value: type});
         Object.defineProperty(this, 'label', {value: options.label});
@@ -55,7 +60,7 @@
     UserPref.prototype.isHidden = function isHidden(iWidget) {
         var varManager, variable;
 
-        varManager = iWidget.layout.dragboard.workspace.varManager;
+        varManager = iWidget.workspace.varManager;
         variable = varManager.getVariableByName(iWidget.id, this.varName);
 
         return variable.hidden;
@@ -63,7 +68,7 @@
 
     UserPref.prototype.getInterfaceDescription = function getInterfaceDescription(iWidget) {
         // TODO
-        var varManager = iWidget.layout.dragboard.workspace.varManager;
+        var varManager = iWidget.workspace.varManager;
 
         var variable, desc;
 

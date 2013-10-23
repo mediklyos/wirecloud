@@ -35,7 +35,8 @@ from wirecloud.catalogue.models import CatalogueResource
 from wirecloud.commons.baseviews import Resource, Service
 from wirecloud.commons.utils import downloader
 from wirecloud.commons.utils.cache import no_cache
-from wirecloud.commons.utils.http import authentication_required, build_error_response, get_content_type, supported_request_mime_types
+from wirecloud.commons.utils.db import save_alternative
+from wirecloud.commons.utils.http import authentication_required, build_error_response, get_content_type, supported_request_mime_types, supported_response_mime_types
 from wirecloud.commons.utils.template import is_valid_name, is_valid_vendor, is_valid_version, TemplateParser
 from wirecloud.commons.utils.transaction import commit_on_http_success
 from wirecloud.commons.utils.wgt import WgtFile
@@ -50,7 +51,7 @@ from wirecloud.platform.workspace.utils import deleteTab, createTab, get_workspa
 from wirecloud.platform.markets.utils import get_market_managers
 
 
-def createEmptyWorkspace(workspaceName, user):
+def createEmptyWorkspace(workspaceName, user, allow_renaming=False):
     active = False
     workspaces = UserWorkspace.objects.filter(user__id=user.id, active=True)
     if workspaces.count() == 0:
@@ -59,11 +60,15 @@ def createEmptyWorkspace(workspaceName, user):
 
     empty_wiring = '{"operators": {}, "connections": []}'
 
-    workspace = Workspace.objects.create(name=workspaceName, creator=user, wiringStatus=empty_wiring)
+    workspace = Workspace(name=workspaceName, creator=user, wiringStatus=empty_wiring)
+    if allow_renaming is True:
+        save_alternative(Workspace, 'name', workspace)
+    else:
+        workspace.save()
     UserWorkspace.objects.create(user=user, workspace=workspace, active=active)
 
     # Tab creation
-    createTab(_('Tab'), user, workspace)
+    createTab(_('Tab'), workspace)
 
     return workspace
 
@@ -86,9 +91,23 @@ def linkWorkspace(user, workspace_id, creator, link_variable_values=True):
     return linkWorkspaceObject(user, workspace, creator, link_variable_values)
 
 
+def normalize_boolean_param(name, value):
+
+    if isinstance(value, basestring):
+        value = value.strip().lower()
+        if value not in ('true', 'false'):
+            raise ValueError(_('Invalid %(parameter)s value') % name)
+        return value == 'true'
+    elif not isinstance(value, bool):
+        return TypeError(_('Invalid %(parameter) type') % name)
+
+    return value
+
+
 class WorkspaceCollection(Resource):
 
     @authentication_required
+    @supported_response_mime_types(('application/json',))
     @commit_on_http_success
     @no_cache
     def read(self, request):
@@ -100,6 +119,7 @@ class WorkspaceCollection(Resource):
 
     @authentication_required
     @supported_request_mime_types(('application/json',))
+    @supported_response_mime_types(('application/json',))
     @commit_on_http_success
     def create(self, request):
 
@@ -111,14 +131,11 @@ class WorkspaceCollection(Resource):
 
         workspace_name = data.get('name', '').strip()
         mashup_id = data.get('mashup', '')
-        dry_run = data.get('dry_run', False)
-        if isinstance(dry_run, basestring):
-            dry_run = dry_run.strip().lower()
-            if dry_run not in ('true', 'false'):
-                return build_error_response(request, 422, _('Invalid dry_run value'))
-            dry_run = dry_run == 'true'
-        elif not isinstance(dry_run, bool):
-            return build_error_response(request, 422, _('Invalid dry_run value'))
+        try:
+            allow_renaming = normalize_boolean_param('allow_renaming', data.get('allow_renaming', False))
+            dry_run = normalize_boolean_param('allow_renaming', data.get('dry_run', False))
+        except (TypeError, ValueError), e:
+            return build_error_response(request, 422, unicode(e))
 
         if mashup_id == '' and workspace_name == '':
             return build_error_response(request, 422, _('missing workspace name'))
@@ -129,7 +146,7 @@ class WorkspaceCollection(Resource):
                 return HttpResponse(status=204)
 
             try:
-                workspace = createEmptyWorkspace(workspace_name, request.user)
+                workspace = createEmptyWorkspace(workspace_name, request.user, allow_renaming=allow_renaming)
             except IntegrityError:
                 msg = _('A workspace with the given name already exists')
                 return build_error_response(request, 409, msg)
@@ -168,7 +185,11 @@ class WorkspaceCollection(Resource):
             if dry_run:
                 return HttpResponse(status=204)
 
-            workspace, _junk = buildWorkspaceFromTemplate(template, request.user, True)
+            try:
+                workspace, _junk = buildWorkspaceFromTemplate(template, request.user, allow_renaming=allow_renaming)
+            except IntegrityError:
+                msg = _('A workspace with the given name already exists')
+                return build_error_response(request, 409, msg)
 
         workspace_data = get_global_workspace_data(workspace, request.user)
 
@@ -178,9 +199,14 @@ class WorkspaceCollection(Resource):
 class WorkspaceEntry(Resource):
 
     @authentication_required
+    @supported_response_mime_types(('application/json',))
     def read(self, request, workspace_id):
 
-        workspace = get_object_or_404(Workspace, users__id=request.user.id, pk=workspace_id)
+        workspace = get_object_or_404(Workspace, pk=workspace_id)
+
+        if not workspace.users.filter(pk=request.user.pk).exists():
+            return HttpResponseForbidden()
+
         workspace_data = get_global_workspace_data(workspace, request.user)
 
         return workspace_data.get_response()
@@ -196,7 +222,9 @@ class WorkspaceEntry(Resource):
             msg = _("malformed json data: %s") % unicode(e)
             return build_error_response(request, 400, msg)
 
-        workspace = Workspace.objects.get(users__id=request.user.id, pk=workspace_id)
+        workspace = Workspace.objects.get(pk=workspace_id)
+        if not (request.user.is_superuser or workspace.users.filter(pk=request.user.pk).exists()):
+            return HttpResponseForbidden()
 
         if 'active' in ts:
 
@@ -223,36 +251,28 @@ class WorkspaceEntry(Resource):
     @commit_on_http_success
     def delete(self, request, workspace_id):
 
-        user_workspaces = UserWorkspace.objects.select_related('workspace')
-        try:
-            user_workspace = user_workspaces.get(user__id=request.user.id, workspace__id=workspace_id)
-        except UserWorkspace.DoesNotExist:
-            raise Http404
-
-        workspace = user_workspace.workspace
-        if workspace.creator != request.user or user_workspace.manager != '':
+        workspace = get_object_or_404(Workspace, pk=workspace_id)
+        if not workspace.users.filter(pk=request.user.pk).exists():
             return HttpResponseForbidden()
 
+        user_workspace = UserWorkspace.objects.get(user=request.user, workspace=workspace)
         # Check if the user does not have any other workspace
-        workspaces = Workspace.objects.filter(users__id=request.user.id).exclude(pk=workspace_id)
-
-        if workspaces.count() == 0:
+        if user_workspace.manager != '' or UserWorkspace.objects.filter(user=request.user).count() == 0:
             msg = _("workspace cannot be deleted")
 
             return build_error_response(request, 403, msg)
 
-        # Remove the workspace
-        iwidgets = IWidget.objects.filter(tab__workspace=workspace)
-        for iwidget in iwidgets:
-            deleteIWidget(iwidget, request.user)
-        workspace.delete()
+        user_workspace.delete()
+        if workspace.users.count() == 0:
 
-        from wirecloud.platform.get_data import _invalidate_cached_variable_values
-        _invalidate_cached_variable_values(workspace)
+            # Remove the workspace
+            iwidgets = IWidget.objects.filter(tab__workspace=workspace)
+            for iwidget in iwidgets:
+                deleteIWidget(iwidget, request.user)
+            workspace.delete()
 
-        # Set a new active workspace (first workspace by default)
-        activeWorkspace = workspaces[0]
-        setActiveWorkspace(request.user, activeWorkspace)
+            from wirecloud.platform.get_data import _invalidate_cached_variable_values
+            _invalidate_cached_variable_values(workspace)
 
         return HttpResponse(status=204)
 
@@ -261,6 +281,7 @@ class TabCollection(Resource):
 
     @authentication_required
     @supported_request_mime_types(('application/json',))
+    @supported_response_mime_types(('application/json',))
     @commit_on_http_success
     def create(self, request, workspace_id):
 
@@ -274,10 +295,12 @@ class TabCollection(Resource):
             return build_error_response(request, 400, _('Malformed tab JSON: expecting tab name.'))
 
         tab_name = data['name']
-        workspace = Workspace.objects.get(users__id=request.user.id, pk=workspace_id)
+        workspace = Workspace.objects.get(pk=workspace_id)
+        if not (request.user.is_superuser or workspace.creator == request.user):
+            return HttpResponseForbidden()
 
         try:
-            tab = createTab(tab_name, request.user, workspace)
+            tab = createTab(tab_name, workspace)
         except IntegrityError:
             msg = _('A tab with the given name already exists for the workspace')
             return build_error_response(request, 409, msg)
@@ -324,15 +347,12 @@ class TabEntry(Resource):
     @commit_on_http_success
     def update(self, request, workspace_id, tab_id):
 
-        tabs = Tab.objects.select_related('workspace')
-        try:
-            tab = tabs.get(workspace__users__id=request.user.id, workspace__pk=workspace_id, pk=tab_id)
-        except Tab.DoesNotExist:
-            raise Http404
+        tab = get_object_or_404(Tab.objects.select_related('workspace'), workspace__pk=workspace_id, pk=tab_id)
+        if tab.workspace.creator != request.user:
+            return HttpResponseForbidden()
 
-        workspace = tab.workspace
         user_workspace = UserWorkspace.objects.get(user__id=request.user.id, workspace__id=workspace_id)
-        if workspace.creator != request.user or user_workspace.manager != '':
+        if user_workspace.manager != '':
             return HttpResponseForbidden()
 
         try:
@@ -343,7 +363,15 @@ class TabEntry(Resource):
 
         if 'visible' in data:
             visible = data['visible']
-            if (visible == 'true'):
+            if isinstance(visible, basestring):
+                visible = visible.strip().lower()
+                if visible not in ('true', 'false'):
+                    return build_error_response(request, 422, _('Invalid visible value'))
+                visible = visible == 'true'
+            elif not isinstance(visible, bool):
+                return build_error_response(request, 422, _('Invalid visible value'))
+
+            if visible:
                 #Only one visible tab
                 setVisibleTab(request.user, workspace_id, tab)
             else:
@@ -361,12 +389,18 @@ class TabEntry(Resource):
     def delete(self, request, workspace_id, tab_id):
 
         # Get tab, if it does not exist, an http 404 error is returned
-        tab = get_object_or_404(Tab, workspace__pk=workspace_id, pk=tab_id)
-        tabs = Tab.objects.filter(workspace__pk=workspace_id).order_by('position')[::1]
+        tab = get_object_or_404(Tab.objects.select_related('workspace'), workspace__pk=workspace_id, pk=tab_id)
+        if not request.user.is_superuser and not tab.workspace.users.filter(id=request.user.id).exists():
+            return HttpResponseForbidden()
 
+        tabs = Tab.objects.filter(workspace__pk=workspace_id).order_by('position')[::1]
         if len(tabs) == 1:
-            msg = _("tab cannot be deleted")
-            return HttpResponseForbidden(msg)
+            msg = _("Tab cannot be deleted as workspaces need at least one tab")
+            return build_error_response(request, 403, msg)
+
+        if tab.iwidget_set.filter(readOnly=True).exists():
+            msg = _("Tab cannot be deleted as it contains widgets that cannot be deleted")
+            return build_error_response(request, 403, msg)
 
         # decrease the position of the following tabs
         for t in range(tab.position + 1, len(tabs)):
@@ -569,7 +603,7 @@ class WorkspacePublisherEntry(Resource):
         workspace = get_object_or_404(Workspace, id=workspace_id)
         if image_file is not None:
             image_filename = 'images/catalogue' + os.path.splitext(image_file.name)[1]
-            options['imageURI'] = image_filename
+            options['image_uri'] = image_filename
         description = build_rdf_template_from_workspace(options, workspace, request.user)
 
         f = StringIO()

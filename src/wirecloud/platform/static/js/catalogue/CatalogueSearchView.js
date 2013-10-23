@@ -25,9 +25,9 @@
     "use strict";
 
     var CatalogueSearchView = function CatalogueSearchView(id, options) {
-        var builder, context, extra_context;
+        var builder, context, extra_context, resource_template;
 
-        options['class'] = 'search_interface';
+        options['class'] = 'search_interface loading';
         this.catalogue = options.catalogue;
         StyledElements.Alternative.call(this, id, options);
 
@@ -36,7 +36,7 @@
         }
 
         builder = new StyledElements.GUIBuilder();
-        this.pagination = new StyledElements.Pagination({
+        this.source = new StyledElements.PaginatedSource({
             'pageSize': 30,
             'order_by': '-popularity',
             'keywords': '',
@@ -53,8 +53,8 @@
                 }
             }.bind(this)
         });
-        this.pagination.addEventListener('requestStart', this.disable.bind(this));
-        this.pagination.addEventListener('requestEnd', function (pagination, error) {
+        this.source.addEventListener('requestStart', this.disable.bind(this));
+        this.source.addEventListener('requestEnd', function (pagination, error) {
             if (error != null) {
                 this.resource_painter.setError(gettext('Connection error: No resources retrieved.'));
             }
@@ -79,13 +79,13 @@
         context = EzWebExt.merge(extra_context, {
             'resourcelist': this.resource_list,
             'pagination': function () {
-                return new StyledElements.PaginationInterface(this.pagination);
+                return new StyledElements.PaginationInterface(this.source);
             }.bind(this),
             'reset_button': function () {
                 var button = new StyledElements.StyledButton({text: gettext('View All')});
                 button.addEventListener('click', function () {
                     this.simple_search_input.setValue('');
-                    this.pagination.changeOptions({'keywords': ''});
+                    this.source.changeOptions({'keywords': ''});
                 }.bind(this));
                 this.view_allbutton = button;
                 return button;
@@ -102,7 +102,7 @@
                     ]
                 });
                 select.addEventListener('change', function (select) {
-                    this.pagination.changeOptions({'order_by': select.getValue()});
+                    this.source.changeOptions({'order_by': select.getValue()});
                 }.bind(this));
                 return select;
             }.bind(this),
@@ -117,7 +117,7 @@
                     ]
                 });
                 select.addEventListener('change', function (select) {
-                    this.pagination.changeOptions({'scope': select.getValue()});
+                    this.source.changeOptions({'scope': select.getValue()});
                 }.bind(this));
                 return select;
             }.bind(this),
@@ -133,7 +133,7 @@
                     ]
                 });
                 select.addEventListener('change', function (select) {
-                    this.pagination.changeOptions({'pageSize': select.getValue()});
+                    this.source.changeOptions({'pageSize': select.getValue()});
                 }.bind(this));
                 this.widgetsperpage = select;
                 return select;
@@ -148,8 +148,13 @@
         this.initialized = false;
         this._last_search = false;
 
+        if ('resource_template' in options) {
+            resource_template = options.resource_template;
+        } else {
+            resource_template = 'catalogue_resource_template';
+        }
         this.resource_painter = new options.resource_painter(this.catalogue,
-            Wirecloud.currentTheme.templates['catalogue_resource_template'],
+            Wirecloud.currentTheme.templates[resource_template],
             this.resource_list
         );
 
@@ -189,7 +194,7 @@
 
     CatalogueSearchView.prototype.refresh_if_needed = function refresh_if_needed() {
         if (this.initialized && (this._last_search === false || (this._last_search + (2 * 60 * 60 * 1000)) < Date.now())) {
-            this.pagination.refresh(); // TODO
+            this.source.refresh(); // TODO
         }
     };
 
@@ -212,7 +217,7 @@
 
     CatalogueSearchView.prototype._keywordTimeoutHandler = function _keywordTimeoutHandler() {
         this.timeout = null;
-        this.pagination.changeOptions({'keywords': this.simple_search_input.getValue()});
+        this.source.changeOptions({'keywords': this.simple_search_input.getValue()});
     };
 
     CatalogueSearchView.prototype._onSearchInput = function _onSearchInput(event) {

@@ -49,12 +49,25 @@ WIRING_EDITOR_FILES = (
     'js/wirecloud/ui/WiringPreview.js',
     'js/wirecloud/ui/ColorSmartBox.js',
     'js/wirecloud/ui/BasicRecommendations.js',
+    'js/wirecloud/ui/RecommendationManager.js',
+)
+
+TUTORIAL_FILES = (
+    'js/wirecloud/ui/Tutorial.js',
+    'js/wirecloud/ui/TutorialCatalogue.js',
+    'js/wirecloud/ui/TutorialSubMenu.js',
+    'js/wirecloud/ui/Tutorial/PopUp.js',
+    'js/wirecloud/ui/Tutorial/SimpleDescription.js',
+    'js/wirecloud/ui/Tutorial/UserAction.js',
+    'js/wirecloud/ui/Tutorial/FormAction.js',
+    'js/wirecloud/ui/Tutorial/AutoAction.js',
+    'js/wirecloud/Tutorials/BasicConcepts.js',
 )
 
 STYLED_ELEMENTS_FILES = (
     'js/StyledElements/Addon.js',
     'js/StyledElements/Fragment.js',
-    'js/StyledElements/Pagination.js',
+    'js/StyledElements/PaginatedSource.js',
     'js/StyledElements/Button.js',
     'js/StyledElements/PopupMenuBase.js',
     'js/StyledElements/PopupMenu.js',
@@ -75,6 +88,7 @@ STYLED_ELEMENTS_FILES = (
     'js/StyledElements/BorderLayout.js',
     'js/StyledElements/ModelTable.js',
     'js/StyledElements/EditableElement.js',
+    'js/StyledElements/CheckBox.js',
     'js/StyledElements/InputInterfaces.js',
     'js/StyledElements/VersionInputInterface.js',
     'js/StyledElements/InputInterfaceFactory.js',
@@ -86,6 +100,7 @@ STYLED_ELEMENTS_FILES = (
 
 BASE_CSS = (
     'css/base/fade.css',
+    'css/windowmenues/logwindowmenu.css',
 )
 
 WIRING_EDITOR_CSS = (
@@ -99,10 +114,16 @@ WIRING_EDITOR_CSS = (
     'css/wiring/colorSmartBox.css',
 )
 
+TUTORIAL_CSS = (
+    'css/tutorial.css',
+)
+
+
 STYLED_ELEMENTS_CSS = (
     'css/styled_elements_core.css',
     'css/styledelements/styled_addon.css',
     'css/styledelements/styled_button.css',
+    'css/styledelements/styled_checkbox.css',
     'css/styledelements/styled_notebook.css',
     'css/styledelements/styled_form.css',
     'css/styledelements/styled_pagination.css',
@@ -138,6 +159,10 @@ class WirecloudCorePlugin(WirecloudPlugin):
                 'label': _('Username'),
                 'description': _('User name of the current logged user'),
             },
+            'fullname': {
+                'label': _('Full name'),
+                'description': _('Full name of the logged user'),
+            },
             'isstaff': {
                 'label': _('Is Staff'),
                 'description': _('Boolean. Designates whether current user can access the admin site.'),
@@ -159,6 +184,7 @@ class WirecloudCorePlugin(WirecloudPlugin):
             'language': 'es',
             'orientation': 'landscape',
             'username': user.username,
+            'fullname': user.get_full_name(),
             'isstaff': user.is_staff,
             'theme': settings.THEME_ACTIVE
         }
@@ -187,8 +213,11 @@ class WirecloudCorePlugin(WirecloudPlugin):
             'js/wirecloud/Version.js',
             'js/wirecloud/Widget.js',
         ) + STYLED_ELEMENTS_FILES + (
+            'js/wirecloud/LogManager.js',
+            'js/wirecloud/Widget/LogManager.js',
             'js/wirecloud/ui/InputInterfaceFactory.js',
             'js/wirecloud/ui/IWidgetMenuItems.js',
+            'js/wirecloud/ui/ResizeHandle.js',
             'js/wirecloud/ui/IWidgetResizeHandle.js',
             'js/wirecloud/ui/IWidgetView.js',
             'js/wirecloud/ui/Draggable.js',
@@ -197,6 +226,7 @@ class WirecloudCorePlugin(WirecloudPlugin):
             'js/log/LogManager.js',
             'js/wirecloud/LocalCatalogue.js',
             'js/wirecloud/wiring/Endpoint.js',
+            'js/wirecloud/wiring/EndpointException.js',
             'js/wirecloud/wiring/SourceEndpoint.js',
             'js/wirecloud/wiring/TargetEndpoint.js',
             'js/wirecloud/wiring/OperatorFactory.js',
@@ -226,6 +256,7 @@ class WirecloudCorePlugin(WirecloudPlugin):
                 'js/wirecloud/ui/MissingDependenciesWindowMenu.js',
                 'js/wirecloud/ui/InstantiateMashupWindowMenu.js',
                 'js/wirecloud/ui/FormWindowMenu.js',
+                'js/wirecloud/ui/LogWindowMenu.js',
                 'js/wirecloud/ui/MessageWindowMenu.js',
                 'js/wirecloud/ui/NewWorkspaceWindowMenu.js',
                 'js/wirecloud/ui/ParametrizeWindowMenu.js',
@@ -234,7 +265,7 @@ class WirecloudCorePlugin(WirecloudPlugin):
                 'js/wirecloud/ui/PublishWorkspaceWindowMenu.js',
                 'js/wirecloud/ui/PublishResourceWindowMenu.js',
                 'js/wirecloud/ui/RenameWindowMenu.js',
-            ) + WIRING_EDITOR_FILES
+            ) + WIRING_EDITOR_FILES + TUTORIAL_FILES
         else:
             return common
 
@@ -302,7 +333,7 @@ class WirecloudCorePlugin(WirecloudPlugin):
         common = BASE_CSS + STYLED_ELEMENTS_CSS
 
         if view == 'index':
-            return common + WORKSPACE_CSS + WIRING_EDITOR_CSS + CATALOGUE_CSS
+            return common + WORKSPACE_CSS + WIRING_EDITOR_CSS + CATALOGUE_CSS + TUTORIAL_CSS
         else:
             return common
 

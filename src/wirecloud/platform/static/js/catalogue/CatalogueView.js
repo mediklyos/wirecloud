@@ -98,18 +98,8 @@
         }
     };
 
-    CatalogueView.prototype.getPublishEndpoint = function getPublishEndpoint() {
-        return [{
-            'name': this.market_id,
-            'label': this.market_id,
-            'type': 'boolean'
-        }];
-    };
-
-    CatalogueView.prototype.getPublishData = function getPublishData(data) {
-        return [{
-            'market': this.market_id
-        }];
+    CatalogueView.prototype.getPublishEndpoints = function getPublishEndpoints() {
+        return null;
     };
 
     CatalogueView.prototype.changeCurrentView = function changeCurrentView(view_name) {
@@ -247,9 +237,9 @@
         // First ask the user
         msg = gettext('Do you really want to remove the "%(name)s" (vendor: "%(vendor)s", version: "%(version)s") widget?');
         context = {
-            name: resource.getName(),
-            vendor: resource.getVendor(),
-            version: resource.getVersion().text
+            vendor: resource.vendor,
+            name: resource.name,
+            version: resource.version.text
         };
 
         msg = interpolate(msg, context, true);
@@ -268,7 +258,7 @@
     };
 
     CatalogueView.prototype.refresh_search_results = function () {
-        this.viewsByName.search.pagination.refresh();
+        this.viewsByName.search.source.refresh();
     };
 
     window.CatalogueView = CatalogueView;

@@ -78,8 +78,8 @@
         });
     };
 
-    FiWareCatalogue.prototype.is_purchased = function is_purchased(resource) {
-        return resource.state === 'purchased';
+    FiWareCatalogue.prototype.is_purchased = function is_purchased(offering) {
+        return offering.state === 'purchased' || offering.state === 'rated';
     };
 
     FiWareCatalogue.prototype.start_purchase = function start_purchase(resource, options) {
@@ -88,7 +88,7 @@
             options = {};
         }
 
-        var url = Wirecloud.URLs.FIWARE_STORE_START_PURCHASE.evaluate({market_user: this.market_user, market_name: this.market_name, store: resource.getStore()});
+        var url = Wirecloud.URLs.FIWARE_STORE_START_PURCHASE.evaluate({market_user: this.market_user, market_name: this.market_name, store: resource.store});
         Wirecloud.io.makeRequest(
             url,
             {

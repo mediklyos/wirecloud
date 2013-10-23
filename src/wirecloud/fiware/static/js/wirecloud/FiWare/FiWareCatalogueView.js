@@ -74,7 +74,8 @@
         this.storeSelect.addEventListener('change', change_store_filter.bind(this));
         search_view_options = {
             catalogue: this,
-            resource_painter: Wirecloud.ui.ResourcePainter,
+            resource_painter: Wirecloud.FiWare.ui.OfferingPainter,
+            resource_template: 'fiware_resource',
             gui_template: 'fiware_marketplace_search_interface',
             extra_context: {
                 'store_select': this.storeSelect
@@ -125,7 +126,7 @@
     };
 
     FiWareCatalogueView.prototype._onSearch = function (callback, raw_data) {
-        var preferred_versions, i, data, key, resources, resource;
+        var preferred_versions, i, data, resources, resource;
 
         if (raw_data.resources) {
             preferred_versions = Wirecloud.utils.CookieManager.readCookie('preferred_versions', true);
@@ -139,10 +140,6 @@
             for (i = 0; i < raw_data.resources.length; i += 1) {
                 resource = new FiWareCatalogueResource(raw_data.resources[i]);
                 resources.push(resource);
-                key = resource.getVendor() + '/' + resource.getName();
-                if (key in preferred_versions) {
-                    resource.changeVersion(preferred_versions[key]);
-                }
             }
 
             data = {
@@ -167,14 +164,8 @@
         }
     };
 
-    FiWareCatalogueView.prototype.getPublishEndpoint = function getPublishEndpoint() {
-        var i, form, stores = [];
-
-        form = [{
-            'name': this.marketplace,
-            'label': this.marketplace,
-            'type': 'boolean'
-        }];
+    FiWareCatalogueView.prototype.getPublishEndpoints = function getPublishEndpoints() {
+        var i, stores = [];
 
         for (i = 0; i < this.store_info.length; i += 1) {
             stores[i] = {
@@ -183,25 +174,7 @@
             };
         }
 
-        form[1] = {
-            'name': this.marketplace + 'Store',
-            'label': this.marketplace + ' store',
-            'type': 'select',
-            'initialEntries': stores
-        };
-        return form;
-    };
-
-    FiWareCatalogueView.prototype.getPublishData = function getPublishData(data) {
-        var publishData = [];
-
-        if (data[this.marketplace]) {
-            publishData = [{
-                'market': this.marketplace,
-                'store': data[this.marketplace + 'Store']
-            }];
-        }
-        return publishData;
+        return stores;
     };
 
     FiWareCatalogueView.prototype.refresh_store_info = function refresh_store_info() {
@@ -296,7 +269,7 @@
     };
 
     FiWareCatalogueView.prototype.refresh_search_results = function () {
-        this.viewsByName.search.pagination.refresh();
+        this.viewsByName.search.source.refresh();
     };
 
 

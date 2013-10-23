@@ -63,17 +63,17 @@
 
         context = EzWebExt.merge(extra_context, {
             'displayname': resource.getDisplayName(),
-            'name': resource.getName(),
+            'name': resource.name,
             'internalname': resource.getURI(),
-            'vendor': resource.getVendor(),
-            'version': resource.getVersion().text,
+            'vendor': resource.vendor,
+            'version': resource.version.text,
             'author': resource.getCreator(),
             'description': resource.getDescription(),
             'type': function () {
                 var label = document.createElement('div');
-                label.textContent = resource.getType();
+                label.textContent = resource.type;
                 label.className = 'label';
-                switch (resource.getType()) {
+                switch (resource.type) {
                 case 'widget':
                     label.classList.add('label-success');
                     break;
@@ -125,7 +125,7 @@
 
                 local_catalogue_view = LayoutManagerFactory.getInstance().viewsByName.marketplace.viewsByName.local;
 
-                if (!this.catalogue_view.catalogue.is_purchased(this.resource) && ['widget', 'operator', 'mashup', 'pack'].indexOf(this.resource.getType()) !== -1) {
+                if (!this.catalogue_view.catalogue.is_purchased(this.resource) && ['widget', 'operator', 'mashup', 'pack'].indexOf(this.resource.type) !== -1) {
                     button = new StyledElements.StyledButton({
                         'class': 'mainbutton btn-success',
                         'text': gettext('Buy')
@@ -134,7 +134,7 @@
                     return button;
                 }
 
-                if (this.resource.getType() === 'operator') {
+                if (this.resource.type === 'operator') {
 
                     if (Wirecloud.LocalCatalogue.resourceExists(this.resource)) {
                         button = new StyledElements.StyledButton({
@@ -151,7 +151,7 @@
                         button.addEventListener('click', local_catalogue_view.createUserCommand('install', this.resource, this.catalogue_view));
                     }
                 } else if (this.catalogue_view.catalogue === Wirecloud.LocalCatalogue) {
-                    switch (this.resource.getType()) {
+                    switch (this.resource.type) {
                     case 'mashup':
                     case 'widget':
                         button = new StyledElements.StyledButton({
@@ -173,7 +173,7 @@
                             'text': gettext('Uninstall')
                         });
                         button.addEventListener('click', local_catalogue_view.createUserCommand('uninstall', this.resource, this.catalogue_view));
-                    } else if (['widget', 'operator', 'mashup'].indexOf(this.resource.getType()) != -1) {
+                    } else if (['widget', 'operator', 'mashup'].indexOf(this.resource.type) != -1) {
                         button = new StyledElements.StyledButton({
                             'text': gettext('Install')
                         });
@@ -223,6 +223,9 @@
                 continue;
             }
             this.create_simple_command(resource_element.elements[i], '.click_for_details', 'click', this.catalogue_view.createUserCommand('showDetails', resource));
+            if (resource_element.elements[i].classList.contains('click_for_details')) {
+                resource_element.elements[i].addEventListener('click', this.catalogue_view.createUserCommand('showDetails', resource));
+            }
         }
 
         return resource_element;

@@ -30,10 +30,11 @@ setting, it must be a list of values to request.
 By default account id and token expiration time are stored in extra_data
 field, check OAuthBackend class for details on how to extend it.
 """
+
+import json
 from urllib import urlencode
 from urllib2 import HTTPError
 
-from django.utils import simplejson
 from django.conf import settings
 
 from social_auth.utils import dsa_urlopen
@@ -42,9 +43,9 @@ from social_auth.exceptions import AuthFailed
 
 
 # GitHub configuration
-FIWARE_AUTHORIZATION_URL = 'https://idm.lab.fi-ware.eu/authorize'
-FIWARE_ACCESS_TOKEN_URL = 'https://idm.lab.fi-ware.eu/token'
-FIWARE_USER_DATA_URL = 'https://idm.lab.fi-ware.eu/user'
+FIWARE_AUTHORIZATION_URL = 'https://account.lab.fi-ware.eu/authorize'
+FIWARE_ACCESS_TOKEN_URL = 'https://account.lab.fi-ware.eu/token'
+FIWARE_USER_DATA_URL = 'https://account.lab.fi-ware.eu/user'
 
 
 
@@ -63,9 +64,18 @@ class FiwareBackend(OAuthBackend):
 
     def get_user_details(self, response):
         """Return user details from FI-WARE account"""
+        name = response.get('displayName') or ''
+        first_name = ''
+        last_name = ''
+        if ' ' in name:
+            first_name, last_name = name.split(' ', 1)
+        else:
+            first_name = name
         return {'username': response.get('nickName'),
                 'email': response.get('email') or '',
-                'fullname': response.get('displayName') or ''}
+                'fullname': name,
+                'first_name': first_name,
+                'last_name': last_name}
 
 
 class FiwareAuth(BaseOAuth2):
@@ -90,7 +100,7 @@ class FiwareAuth(BaseOAuth2):
         })
 
         try:
-            data = simplejson.load(dsa_urlopen(url))
+            data = json.load(dsa_urlopen(url))
         except ValueError:
             data = None
 

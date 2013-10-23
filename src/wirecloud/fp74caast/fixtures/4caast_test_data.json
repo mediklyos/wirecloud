@@ -12,8 +12,8 @@
             "is_active": true,
             "is_superuser": false,
             "groups": [1],
-            "last_login": "2011-10-10 11:27:12",
-            "date_joined": "2011-10-10 11:27:12"
+            "last_login": "2011-10-10T11:27:12+01:00",
+            "date_joined": "2011-10-10T11:27:12+01:00"
         }
     },
     {
@@ -29,8 +29,8 @@
             "is_active": true,
             "is_superuser": false,
             "groups": [1],
-            "last_login": "2011-10-10 11:27:12",
-            "date_joined": "2011-10-10 11:27:12"
+            "last_login": "2011-10-10T11:27:12+01:00",
+            "date_joined": "2011-10-10T11:27:12+01:00"
         }
     },
     {
@@ -46,8 +46,8 @@
             "is_active": true,
             "is_superuser": false,
             "groups": [1],
-            "last_login": "2011-10-10 11:27:12",
-            "date_joined": "2011-10-10 11:27:12"
+            "last_login": "2011-10-10T11:27:12+01:00",
+            "date_joined": "2011-10-10T11:27:12+01:00"
         }
     },
     {
@@ -82,7 +82,7 @@
         "pk": 101,
         "fields": {
             "user": 102,
-            "id_4CaaSt": "org.4caast.customers.4caast_developer.services.app1"
+            "id_4CaaSt": "4caast.customers.4caast_developer.services.app1"
         }
     },
     {
@@ -90,7 +90,7 @@
         "pk": 102,
         "fields": {
             "user": 103,
-            "id_4CaaSt": "org.4caast.customers.4caast_developer2.services.app2"
+            "id_4CaaSt": "4caast.customers.4caast_developer2.services.app2"
         }
     },
     {
@@ -98,7 +98,7 @@
         "pk": 101,
         "fields": {
             "user_workspace": 102,
-            "id_4CaaSt": "org.4caast.customers.4caast_customer.services.app55365"
+            "id_4CaaSt": "4caast.customers.4caast_customer.services.app55365"
         }
     }
 ]
